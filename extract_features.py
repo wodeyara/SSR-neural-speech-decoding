@@ -172,7 +172,102 @@ def extractSSPE(data, initParams_list, include_phase = True, include_pac = True)
                     current_col += 1
     return feat
 
-def extractHG(data, low_pass = False):
+
+
+def extractHG(data, low_pass=False):
+    """
+    Extract high-gamma band envelope features and optional low-pass amplitude/phase.
+    
+    Parameters
+    ----------
+    data : array (samples, channels)
+        EEG time series data.
+    sr : float
+        Sampling rate in Hz.
+    winL : float
+        Window length in seconds.
+    frameshift : float
+        Frame shift / step size in seconds.
+    low_pass : bool, optional
+        If True, include low-pass (<20 Hz) amplitude and phase components.
+        
+    Returns
+    -------
+    feat : array (windows, channels) or (windows, channels * 4) if low_pass=True
+    """
+    # Linear detrend
+    data = scipy.signal.detrend(data, axis=0)
+    
+    # Calculate total windows
+    numWindows = int(np.floor((data.shape[0] - winL * sr) / (frameshift * sr)))
+    n_channels = data.shape[1]
+
+    # FIR Filter setup (400 ms memory window)
+    filter_memory_ms = 400
+    n_taps = int((filter_memory_ms / 1000.0) * sr)
+    if n_taps % 2 == 0:
+        n_taps += 1
+
+    # HIGH-GAMMA BANDPASS (70 - 170 Hz)
+    hg_filter = scipy.signal.firwin(
+        n_taps, 
+        [70 / (sr / 2), 170 / (sr / 2)], 
+        pass_zero=False, 
+        window='hamming'
+    )
+    data_hg_filtered = scipy.signal.lfilter(hg_filter, [1.0], data, axis=0)
+
+    
+    # Notch filters for line noise harmonics (98-102 Hz, 148-152 Hz)
+    
+    # first harmonic of line noise
+    sos = scipy.signal.iirfilter(4, [98/(sr/2),102/(sr/2)],btype='bandstop',output='sos')
+    data_hg_filtered = scipy.signal.sosfiltfilt(sos,data_hg_filtered,axis=0)
+
+    # second harmonic of line noise
+    sos = scipy.signal.iirfilter(4, [148/(sr/2),152/(sr/2)],btype='bandstop',output='sos')
+    data_hg_filtered = scipy.signal.sosfiltfilt(sos,data_hg_filtered,axis=0)
+
+    # Hilbert transform for envelope
+    hg_amplitude = np.abs(scipy.signal.hilbert(data_hg_filtered, axis=0))
+
+
+    # LOW-PASS BAND (< 20 Hz)
+    if low_pass:
+        lp_filter = scipy.signal.firwin(
+            n_taps, 
+            20 / (sr / 2), 
+            pass_zero='lowpass', 
+            window='hamming'
+        )
+        data_lp_filtered = scipy.signal.lfilter(lp_filter, [1.0], data, axis=0)
+
+        analytic_lp = scipy.signal.hilbert(data_lp_filtered, axis=0)
+        lp_amplitude = np.abs(analytic_lp)
+        lp_phase = np.angle(analytic_lp)
+
+        lp_sin_phase = np.sin(lp_phase)
+        lp_cos_phase = np.cos(lp_phase)
+
+    # FEATURE EXTRACTION WINDOWING
+    feat_cols = n_channels * 4 if low_pass else n_channels
+    feat = np.zeros((numWindows, feat_cols))
+
+    for win in range(numWindows):
+        start = int(np.floor((win * frameshift) * sr))
+        stop = int(np.floor(start + winL * sr))
+        
+        if low_pass:
+            feat[win, 0::4] = np.mean(lp_amplitude[start:stop, :], axis=0)
+            feat[win, 1::4] = np.mean(lp_sin_phase[start:stop, :], axis=0)
+            feat[win, 2::4] = np.mean(lp_cos_phase[start:stop, :], axis=0)
+            feat[win, 3::4] = np.mean(hg_amplitude[start:stop, :], axis=0)
+        else:
+            feat[win, :] = np.mean(hg_amplitude[start:stop, :], axis=0)
+
+    return feat
+
+def extractHG_old(data, low_pass = False):
     """
     Extract high-gamma band envelope features from EEG data using Hilbert transform. If low-pass=True, also frequencies <20 Hz are included.
     

@@ -1,5 +1,5 @@
 import numpy as np
-
+import time
 '''causal phase estimates using the SP model and EM with fixed interval
 % smoothing across windows of data
 % primary benefit: assume a transitory burst of oscillatory activity in the
@@ -33,7 +33,7 @@ import numpy as np
 
 returns [phase,phaseBounds,allX_full,phaseWidth,returnParams] 
 '''
-def causalPhaseEM_MKmdl_noSeg(y, initParams, flagNoFit):
+def causalPhaseEM_MKmdl_noSeg(y, initParams, flagNoFit, time= False, warmup_blocks=40):
     """
     Real-time causal phase estimation using oscillator-based state-space model and EM parameter updates.
     """
@@ -117,7 +117,18 @@ def causalPhaseEM_MKmdl_noSeg(y, initParams, flagNoFit):
         x = stateVec[:, -1]
         P = stateCov[:, :, -1]
 
+        samples_in_50ms = round(0.050 * Fs)
+
+        block_times_ms = []
+        block_start = None
         for tp in range(windowSize, len(y)):
+
+            if time:
+                # Start timing at beginning of each 50 ms block
+                if (tp - windowSize) % samples_in_50ms == 0:
+                    block_start = time.perf_counter()
+
+
             x_new, P_new = oneStepKFupdate_sspp(x, y[tp], phi, M, Q, R, P)
             #print(f"DEBUG: x_new shape = {x_new.shape}, allX shape = {allX.shape}, M shape = {M.shape}")
 
@@ -140,7 +151,7 @@ def causalPhaseEM_MKmdl_noSeg(y, initParams, flagNoFit):
             #sample_angles = np.angle(np.exp(1j * (np.angle(samples[:, 0] + 1j * samples[:, 1]) - phase[tp])))
 
             
-
+            '''
             for f in range(n_freq):
                 mu = np.array([
                     x_new[real_idx[f]],
@@ -151,8 +162,7 @@ def causalPhaseEM_MKmdl_noSeg(y, initParams, flagNoFit):
                     real_idx[f]:imag_idx[f] + 1,
                     real_idx[f]:imag_idx[f] + 1
                 ]
-
-                '''
+                
                 Nsamp = 2000
                 sample_angles = np.zeros((n_freq, Nsamp))
                 samples = np.random.multivariate_normal(mu, Sigma, Nsamp)
@@ -184,6 +194,16 @@ def causalPhaseEM_MKmdl_noSeg(y, initParams, flagNoFit):
             P = P_new
             x = x_new
 
+            if time:
+                # End timing after exactly one 50 ms block
+                if (block_start is not None
+                    and (tp - windowSize + 1) % samples_in_50ms == 0
+                ):
+                    elapsed_ms = (time.perf_counter() - block_start) * 1000
+                    block_times_ms.append(elapsed_ms)
+                    block_start = None
+           
+            
         '''if lowFreqBand is not None and lowFreqLoc[0] == 0: 
             print('lowFreqLoc = 0')
         '''
@@ -195,7 +215,20 @@ def causalPhaseEM_MKmdl_noSeg(y, initParams, flagNoFit):
         #to this, so we return all osccilators 
         n_freq = len(freqs)
         allX_full = allX.reshape(n_freq, 2, -1).transpose(2, 0, 1)
-        #return phase, phaseBounds, allX_full, phaseWidth, returnParams
+
+        if time:
+            valid_times = np.asarray(block_times_ms[warmup_blocks:])
+            timing = {
+                "mean_ms": np.mean(valid_times),
+                "median_ms": np.median(valid_times),
+                "p95_ms": np.percentile(valid_times, 95),
+                "max_ms": np.max(valid_times),
+                "std_ms": np.std(valid_times),
+                "n_blocks": len(valid_times),
+                "all_times_ms": valid_times,
+            }
+            returnParams["_timing_50ms"] = timing
+
         return phase, allX_full, returnParams
     except Exception as e:
         # This will print the error and the channel info to your console

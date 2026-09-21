@@ -214,8 +214,8 @@ def reconstruct(pts, model = 'PLS', n_comp = 9, feat_suffix='_feat.npy', unstack
 
         #Save reconstructed spectrogram
         os.makedirs(os.path.join(result_path), exist_ok=True)
-        np.save(os.path.join(result_path,f'{pt}_PAC_predicted_spec.npy'), rec_spec)
-        print("save pac")
+        if saveAs:
+            np.save(os.path.join(result_path,f'{pt}_{saveAs}_predicted_spec.npy'), rec_spec)
         
         if synthesize:
             #Synthesize waveform from spectrogram using Griffin-Lim
@@ -224,7 +224,7 @@ def reconstruct(pts, model = 'PLS', n_comp = 9, feat_suffix='_feat.npy', unstack
                 print("Warning: Predicted spectrogram values are too high!")
                 rec_spec = np.clip(rec_spec, -100, 50) # Forces values into a mathematically safe range
             reconstructedWav = createAudio(rec_spec,audiosr=audiosr,winLength=winLength,frameshift=frameshift)
-            wavfile.write(os.path.join(result_path,f'{pt}HG_predicted.wav'),int(audiosr),reconstructedWav)
+            wavfile.write(os.path.join(result_path,f'{pt}_predicted.wav'),int(audiosr),reconstructedWav)
 
             #For comparison synthesize the original spectrogram with Griffin-Lim
             origWav = createAudio(spectrogram,audiosr=audiosr,winLength=winLength,frameshift=frameshift)
@@ -232,11 +232,10 @@ def reconstruct(pts, model = 'PLS', n_comp = 9, feat_suffix='_feat.npy', unstack
 
     #Save results in numpy arrays  
     if saveAs:
-        if saveAs == 'dont':
-            return allRes, est.coef_
         np.save(os.path.join(result_path, saveAs + 'linearResults.npy'),allRes)
         np.save(os.path.join(result_path, saveAs + 'randomResults.npy'),randomControl)
         np.save(os.path.join(result_path, saveAs + 'explainedVariance.npy'),explainedVariance)
+        np.save(os.path.join(result_path, saveAs + 'est_coef.npy'), est.coef_)
     return allRes, est.coef_
 
 

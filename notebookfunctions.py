@@ -287,7 +287,7 @@ def plot_density_template(results_dict, template_freqs, s, dens, all_freqs):
     plt.legend(fontsize = 16)
     plt.show()
 
-def build_density_template(results_dict, nr_hg_osc=2, verbose = True):
+def build_density_template(results_dict, nr_hg_osc=2, verbose = False):
     """
     Build a frequency template by clustering SOMATA results using kernel density estimation.
     
