@@ -165,6 +165,8 @@ def main():
     ap.add_argument('--plan', choices=['main'], default=None,
                     help="run the agreed main analysis (MAIN_PLAN: feature sets x context); overrides --sets/--causal-stack")
     ap.add_argument('--part', default='1/1', help="i/n: run only every n-th plan item starting at i (to split across machines)")
+    ap.add_argument('--reverse', action='store_true',
+                    help='run the plan from the end (a helper machine can work towards a machine running it forwards)')
     ap.add_argument('--n-comp', default='nested',
                     help="'nested' (inner-CV selection, recommended), 'paper' (published values; 8 for new sets), "
                          "or an integer used for every set")
@@ -184,6 +186,8 @@ def main():
         items = [(n, args.causal_stack) for n in names]
     i, n_parts = (int(x) for x in args.part.split('/'))
     items = items[i - 1::n_parts]
+    if args.reverse:
+        items = items[::-1]
     names = list(dict.fromkeys(n for n, _ in items))
     for pt in args.pts:
         ensure_features(pt, names, args.ssr_engine, args.n_jobs, args.overwrite_features)
