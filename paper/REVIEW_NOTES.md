@@ -254,12 +254,38 @@ Options:
 3. **Parallel cloud sessions.** One session per participant (each downloads the dataset, runs SOMATA and the comparisons for its participant and
    pushes the JSON/result files to a branch) finishes in ~3–4 h wall time, at ~10× the compute of one session.
 
-## 6. Open TODOs (in order of importance)
-0. Rerun SOMATA with the 100 Hz notch (in progress, see §5) and regenerate all SSR numbers and figures.
-1. Run the matched comparisons for all participants: `python run_comparisons.py --sets all --n-comp nested` (and with `--causal-stack`), then
-   `stats_contrasts.py` with the `cmp_*` prefixes. Fill Table 1 results and the red TODOs.
-2. Run `compare_filters.py --pts sub-01 … sub-10` with the saved SOMATA results to report filter bandwidths/delays, lags and PAC redundancy for all participants.
-3. Regenerate Fig. 4B (SSR vs bandpass correlation) with the delay-compensated bandpass and commit the code. Recompute the error-track correlations from the
-   final predictions. Fix the time axis of the zoomed spectrogram.
-5. Forward-chaining stability analysis (train early, test later) if parameter stability is to be claimed strongly.
-6. Author list (R. Cavill?), affiliations, funding, CRediT, code DOI.
+## 6. Main analysis (all ten participants; in the paper, Tables 2-3 and Fig. 7)
+Fully causal pipeline: buffered bandpass and SSR features, past-only context (−400…0 ms), nested PLS (grid 4–12, 3 inner folds).
+Also the offline Verwoert pipeline and the ±200 ms context. 21 configurations × 10 participants, run on 9 cloud sessions + this machine.
+Tables: `stats_contrasts.py --preset main`, `summarize_main.py`; figure: `plot_main.py`.
+
+| past-only, mean r over 10 participants | causal bandpass (buffered) | matched bandpass | SSR (causal) | offline bandpass (Verwoert) |
+|---|---|---|---|---|
+| high gamma only | 0.736 | | | 0.740 |
+| amplitude (HG + LP amp. for bandpass) | 0.725 | 0.729 | 0.729 | |
+| + LF phase | 0.755 | 0.753 | 0.753 | 0.763 |
+| + PAC | 0.755 | 0.756 | 0.756 | 0.764 |
+| + phase-resolved PAC | 0.755 | | 0.752 | |
+| ±200 ms context (+ LF phase / + PAC) | | | 0.765 / 0.765 | 0.773 / 0.772 |
+
+Key contrasts (Δr, 95% CI over participants; p_FDR within family):
+* SSR vs causal bandpass: amplitude +0.003 [−0.007, 0.013]; + phase −0.002 [−0.010, 0.007]; + PAC +0.001 [−0.006, 0.008]; all n.s., 3–6/10 favour SSR.
+* SSR vs matched bandpass: |Δr| ≤ 0.0005 at all three levels (CIs within ±0.015) — the estimator does not matter at fixed frequencies.
+* Causal vs offline: buffered bandpass −0.004 (HG) and −0.008 (HG + LP), p_FDR = 0.012, 9/10; SSR −0.008 to −0.011 vs offline, p_FDR 0.055–0.12.
+* LF phase gain: SSR +0.024 [0.002, 0.047] (8/10, p = 0.021, p_FDR = 0.16); bandpass HG + LP vs HG +0.019 [−0.001, 0.039] (p_FDR = 0.16).
+* PAC: +0.003 (SSR), +0.000 (bandpass); phase-resolved PAC −0.004 / −0.000. No gain from cross-frequency features.
+* Context: no consistent effect (all p_FDR ≥ 0.29); ±200 ms slightly better for sets with LF phase, past-only better for HG only (6/10).
+* n_comp: grid edge 4 chosen in 13.6 % and 12 in 7.3 % of outer folds; HG-only sets choose 4 in half the folds (possible slight underestimate; a
+  grid starting at 2 would settle this).
+
+What changed relative to the draft: the draft's SSR-vs-bandpass parity holds in the causal setting, but the draft's significant gains from LF
+features (p_FDR = 0.009) are not significant after FDR in the causal analysis (p_FDR = 0.16), and the PAC conclusions are now negative.
+
+## 7. Open TODOs (in order of importance)
+1. Figures still from the earlier (FIR, un-notched) version of the analysis, marked in red in the PDF: SSR model fits (Fig. 3), SSR-vs-bandpass
+   correlation (Fig. 5B), oscillator relevance / PLS weights, temporal stability (appendix), spectrogram examples and error-track correlations.
+   They come from `report_figures.ipynb` and need the new SOMATA models / predictions (`*_predicted_spec.npy`, not committed; rerun
+   `reconstruct(..., synthesize=False)` for the sets to plot).
+2. Optional: extend the PLS grid down to 2 components for the HG-only sets; Kalman-smoother (offline) SSR as the non-causal SSR reference.
+3. Forward-chaining stability analysis (train early, test later) if parameter stability is to be claimed strongly.
+4. Author list (R. Cavill?), affiliations, funding, CRediT, code DOI.
