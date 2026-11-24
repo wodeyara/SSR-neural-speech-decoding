@@ -172,48 +172,172 @@ def extractSSPE(data, initParams_list, include_phase = True, include_pac = True)
                     current_col += 1
     return feat
 
-def extractHG(data):
+
+
+def extractHG(data, low_pass=False):
     """
-    Extract high-gamma band envelope features from EEG data using Hilbert transform.
+    Extract high-gamma band envelope features and optional low-pass amplitude/phase.
+    
+    Parameters
+    ----------
+    data : array (samples, channels)
+        EEG time series data.
+    sr : float
+        Sampling rate in Hz.
+    winL : float
+        Window length in seconds.
+    frameshift : float
+        Frame shift / step size in seconds.
+    low_pass : bool, optional
+        If True, include low-pass (<20 Hz) amplitude and phase components.
+        
+    Returns
+    -------
+    feat : array (windows, channels) or (windows, channels * 4) if low_pass=True
+    """
+    # Linear detrend
+    data = scipy.signal.detrend(data, axis=0)
+    
+    # Calculate total windows
+    numWindows = int(np.floor((data.shape[0] - winL * sr) / (frameshift * sr)))
+    n_channels = data.shape[1]
+
+    # FIR Filter setup (400 ms memory window)
+    filter_memory_ms = 400
+    n_taps = int((filter_memory_ms / 1000.0) * sr)
+    if n_taps % 2 == 0:
+        n_taps += 1
+
+    # HIGH-GAMMA BANDPASS (70 - 170 Hz)
+    hg_filter = scipy.signal.firwin(
+        n_taps, 
+        [70 / (sr / 2), 170 / (sr / 2)], 
+        pass_zero=False, 
+        window='hamming'
+    )
+    data_hg_filtered = scipy.signal.lfilter(hg_filter, [1.0], data, axis=0)
+
+    
+    # Notch filters for line noise harmonics (98-102 Hz, 148-152 Hz)
+    
+    # first harmonic of line noise
+    sos = scipy.signal.iirfilter(4, [98/(sr/2),102/(sr/2)],btype='bandstop',output='sos')
+    data_hg_filtered = scipy.signal.sosfiltfilt(sos,data_hg_filtered,axis=0)
+
+    # second harmonic of line noise
+    sos = scipy.signal.iirfilter(4, [148/(sr/2),152/(sr/2)],btype='bandstop',output='sos')
+    data_hg_filtered = scipy.signal.sosfiltfilt(sos,data_hg_filtered,axis=0)
+
+    # Hilbert transform for envelope
+    hg_amplitude = np.abs(scipy.signal.hilbert(data_hg_filtered, axis=0))
+
+
+    # LOW-PASS BAND (< 20 Hz)
+    if low_pass:
+        lp_filter = scipy.signal.firwin(
+            n_taps, 
+            20 / (sr / 2), 
+            pass_zero='lowpass', 
+            window='hamming'
+        )
+        data_lp_filtered = scipy.signal.lfilter(lp_filter, [1.0], data, axis=0)
+
+        analytic_lp = scipy.signal.hilbert(data_lp_filtered, axis=0)
+        lp_amplitude = np.abs(analytic_lp)
+        lp_phase = np.angle(analytic_lp)
+
+        lp_sin_phase = np.sin(lp_phase)
+        lp_cos_phase = np.cos(lp_phase)
+
+    # FEATURE EXTRACTION WINDOWING
+    feat_cols = n_channels * 4 if low_pass else n_channels
+    feat = np.zeros((numWindows, feat_cols))
+
+    for win in range(numWindows):
+        start = int(np.floor((win * frameshift) * sr))
+        stop = int(np.floor(start + winL * sr))
+        
+        if low_pass:
+            feat[win, 0::4] = np.mean(lp_amplitude[start:stop, :], axis=0)
+            feat[win, 1::4] = np.mean(lp_sin_phase[start:stop, :], axis=0)
+            feat[win, 2::4] = np.mean(lp_cos_phase[start:stop, :], axis=0)
+            feat[win, 3::4] = np.mean(hg_amplitude[start:stop, :], axis=0)
+        else:
+            feat[win, :] = np.mean(hg_amplitude[start:stop, :], axis=0)
+
+    return feat
+
+def extractHG_old(data, low_pass = False):
+    """
+    Extract high-gamma band envelope features from EEG data using Hilbert transform. If low-pass=True, also frequencies <20 Hz are included.
     
     This function windows the data, applies bandpass filtering in the high-gamma
-    range (70-170 Hz), removes line noise harmonics, and extracts the envelope
-    using the Hilbert transform.
+    range (70-170 Hz) and low-pass filtering (<20 Hz) if low_pass=True, removes line noise harmonics,
+    and extracts the envelope using the Hilbert transform.
+
     
     Parameters
     ----------
     data : array (samples, channels)
         EEG time series
+    low_pass : bool, optional
+        If True, apply low-pass filtering before high-gamma extraction. Default is False.
         
     Returns
     -------
-    feat : array (windows, channels)
-        High-gamma envelope feature matrix. Each row corresponds to a time window
+    feat : array (windows, channels) or (windows, channels * 2) if low_pass=True
+        Envelope feature matrix. Each row corresponds to a time window
         and each column to a channel.
+        If low_pass=ture, the matrix has interleaved low-pass and high-gamma feature columns:
+        [ch0_low, ch0_hg, ch1_low, ch1_hg, ...]
     """
     #Linear detrend
     data = scipy.signal.detrend(data,axis=0)
     #Number of windows
     numWindows = int(np.floor((data.shape[0]-winL*sr)/(frameshift*sr)))
     #Filter High-Gamma Band
+    #sos = scipy.signal.iirfilter(4, [70/(sr/2),170/(sr/2)],btype='bandpass',output='sos')
+    #data = scipy.signal.sosfiltfilt(sos,data,axis=0) (original uncausal method)
+    #data = scipy.signal.sosfilt(sos,data,axis=0) (original causal method, produces roughly the same result as uncausal method)
+    
+    # Design FIR filter with 400ms memory for causal filtering
+    filter_memory_samples = int(0.4 * sr)
+    
+    # Process high-gamma band
+    data_hg = data.copy()
+    #Filter High-Gamma Band
     sos = scipy.signal.iirfilter(4, [70/(sr/2),170/(sr/2)],btype='bandpass',output='sos')
-    #data = scipy.signal.sosfiltfilt(sos,data,axis=0) (original uncausal method, though it produces roughly the same result)
-    data = scipy.signal.sosfilt(sos,data,axis=0)
+    data_hg = scipy.signal.sosfilt(sos,data_hg,axis=0)
     
     #Attenuate first harmonic of line noise
     sos = scipy.signal.iirfilter(4, [98/(sr/2),102/(sr/2)],btype='bandstop',output='sos')
-    data = scipy.signal.sosfiltfilt(sos,data,axis=0)
+    data_hg = scipy.signal.sosfiltfilt(sos,data_hg,axis=0)
     #Attenuate second harmonic of line noise
     sos = scipy.signal.iirfilter(4, [148/(sr/2),152/(sr/2)],btype='bandstop',output='sos')
-    data = scipy.signal.sosfiltfilt(sos,data,axis=0)
+    data_hg = scipy.signal.sosfiltfilt(sos,data_hg,axis=0)
+    data_hg = np.abs(hilbert3(data_hg))
+
+    if low_pass:
+        # Process low-pass band
+        data_lp = data.copy()
+        # Low-pass FIR filter (<20 Hz) using a Hamming window
+        lp_filter = scipy.signal.firwin(filter_memory_samples, 20/(sr/2), 
+                                        pass_zero='lowpass', window='hamming')
+        data_lp = scipy.signal.lfilter(lp_filter, [1.0], data_lp, axis=0)
+        data_lp = np.abs(hilbert3(data_lp))
 
     #Create feature space
-    data = np.abs(hilbert3(data))
-    feat = np.zeros((numWindows,data.shape[1]))
+    n_channels = data.shape[1]
+    feat = np.zeros((numWindows, n_channels * 2)) if low_pass else np.zeros((numWindows, n_channels))
     for win in range(numWindows):
         start= int(np.floor((win*frameshift)*sr))
         stop = int(np.floor(start+winL*sr))
-        feat[win,:] = np.mean(data[start:stop,:],axis=0)
+        if low_pass:
+            # Interleave low-pass and high-gamma features
+            feat[win, 0::2] = np.mean(data_lp[start:stop,:],axis=0)  # even indices: low-pass
+            feat[win, 1::2] = np.mean(data_hg[start:stop,:],axis=0)  # odd indices: high-gamma
+        else:
+            feat[win, :] = np.mean(data_hg[start:stop,:],axis=0)
     return feat
 
 def stackFeatures(features, modelOrder=4, stepSize=5):
@@ -326,7 +450,7 @@ def nameVector(elecs, modelOrder=4):
     return names.flatten()  #Add 'F' if stacked the same as matlab
 
 
-def run_extract_features(pt, initParams_list, SSPE=True, include_phase = True, include_pac = True, saveAs = None):
+def run_extract_features(pt, initParams_list=None, SSPE=True, include_phase = True, include_pac = True, low_pass=False, saveAs = None):
     """
     Extract EEG features, process audio, align data, and save for a single participant.
     
@@ -344,6 +468,15 @@ def run_extract_features(pt, initParams_list, SSPE=True, include_phase = True, i
     SSPE : bool, optional
         If True, use SSPE feature extraction. If False, use high-gamma extraction.
         Default is True.
+    include_phase : bool, optional
+        If True, include phase information in SSPE features. Default is True.
+    include_pac : bool, optional
+        If True, include phase-amplitude coupling in SSPE features. Default is True.
+    low_pass : bool, optional
+        If True, include low-pass features in HG extraction. Default is False.
+    saveAs : str, optional
+        Custom filename prefix for to save feature files. If None, features aren't saved.
+    
     
     The function saves the following files:
     - {pt}_SSPEfeat.npy or {pt}_causalfeat.npy: Neural features
@@ -373,7 +506,7 @@ def run_extract_features(pt, initParams_list, SSPE=True, include_phase = True, i
     #Extract features
     if not SSPE:
         #Extract HG features
-        feat = extractHG(eeg)
+        feat = extractHG(eeg, low_pass=low_pass)
     else:
         #Extract SSPE features
         feat = extractSSPE(eeg, initParams_list, include_phase = include_phase, include_pac = include_pac)
@@ -382,6 +515,7 @@ def run_extract_features(pt, initParams_list, SSPE=True, include_phase = True, i
     #Stack features
     feat = stackFeatures(feat,modelOrder=modelOrder,stepSize=stepSize)
     
+    '''
     #Process Audio
     target_SR = 16000
     audio = scipy.signal.decimate(audio,int(audio_sr / target_SR))
@@ -391,10 +525,10 @@ def run_extract_features(pt, initParams_list, SSPE=True, include_phase = True, i
     scipy.io.wavfile.write(os.path.join(path_output,f'{pt}_orig_audio.wav'),audio_sr,scaled)   
 
     #Extract spectrogram
-    melSpec = extractMelSpecs(scaled,audio_sr,winL=winL,frameshift=frameshift)
+    melSpec = extractMelSpecs(scaled,audio_sr)
     
     #Align to EEG features
-    words = downsampleLabels(words,eeg_sr,winL=winL,frameshift=frameshift)
+    words = downsampleLabels(words)
     words = words[modelOrder*stepSize:words.shape[0]-modelOrder*stepSize]
     melSpec = melSpec[modelOrder*stepSize:melSpec.shape[0]-modelOrder*stepSize,:]
     #adjust length (differences might occur due to rounding in the number of windows)
@@ -405,7 +539,7 @@ def run_extract_features(pt, initParams_list, SSPE=True, include_phase = True, i
     
     #Create feature names by appending the temporal shift 
     feature_names = nameVector(channels[:,None], modelOrder=modelOrder)
-
+    '''
     #Save everything
     if saveAs: 
         np.save(os.path.join(path_output,f'{pt}{saveAs}.npy'), feat)
@@ -414,9 +548,12 @@ def run_extract_features(pt, initParams_list, SSPE=True, include_phase = True, i
             np.save(os.path.join(path_output,f'{pt}_SSPEfeat.npy'), feat)
         else:
             np.save(os.path.join(path_output,f'{pt}_causalfeat.npy'), feat)
+
+    '''
     np.save(os.path.join(path_output,f'{pt}_procWords.npy'), words)
     np.save(os.path.join(path_output,f'{pt}_spec.npy'), melSpec)
     np.save(os.path.join(path_output,f'{pt}_feat_names.npy'), feature_names)
+    '''
 
 
 

@@ -1,0 +1,15 @@
+{
+    "HG bandpass baseline": [
+        0.711539270206682
+    ],
+    "HG + LP bandpass": [
+        0.718854763134924
+    ],
+    "Amplitude SSR": [
+        0.6663911327279034
+    ],
+    "Amplitude and Phase SSR": [
+        0.7132100556584104
+    ],
+    "Amplitude, Phase and PAC SSR": []
+}

@@ -9,7 +9,15 @@ results/
 *.npy
 *.mat
 *.wav
+*.csv
 
 # OS
 .DS_Store
 Thumbs.db
+.ipynb_checkpoints/
+pls_hyperparameter_results/search_checkpoint.npz
+.ipynb_checkpoints/
+*.csv
+*.json
+*.npz
+*.png
