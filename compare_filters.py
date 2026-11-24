@@ -23,6 +23,7 @@ and a printed summary.
 Usage:
     export SSR_PATH_BIDS=... SSR_PATH_SOMATA=... SSR_PATH_FEATURES=...
     python compare_filters.py --pts sub-01 --out ./results/filters
+    python compare_filters.py --aggregate --pts sub-01 sub-02 ... --out ./results/filters   # group summary
 """
 import argparse
 import csv
@@ -189,13 +190,54 @@ def plot(pt, rows, params_list, lags_ms, curves, out):
     plt.close(fig)
 
 
+def aggregate(out, pts):
+    """Group-level summary of the per-participant outputs written by main() (no data needed)."""
+    rows = []
+    for pt in pts:
+        f = os.path.join(out, f'filter_summary_{pt}.csv')
+        if not os.path.exists(f):
+            print(f'{pt}: no filter summary, skipped'); continue
+        with open(f) as fh:
+            for r in csv.DictReader(fh):
+                rows.append(dict(pt=pt, freq=float(r['freq']), bw=float(r['bandwidth']), gd=float(r['group_delay_ms'])))
+    fr = np.array([r['freq'] for r in rows]); bw = np.array([r['bw'] for r in rows]); gd = np.array([r['gd'] for r in rows])
+    q = lambda x: f'{np.median(x):.1f} [IQR {np.percentile(x, 25):.1f}-{np.percentile(x, 75):.1f}]'
+    for name, m in (('HG (70-170 Hz)', (fr >= 70) & (fr <= 170)), ('LF (<20 Hz)', fr < 20)):
+        print(f'all {name:15s} n={m.sum():5d}  bandwidth {q(bw[m])} Hz  group delay {q(gd[m])} ms, '
+              f'95th pct {np.percentile(gd[m], 95):.1f}, max {gd[m].max():.1f} ms')
+    pr = [np.load(os.path.join(out, f'pac_redundancy_{pt}.npy')) for pt in pts
+          if os.path.exists(os.path.join(out, f'pac_redundancy_{pt}.npy'))]
+    if pr:
+        med = [np.median(x[:, 1]) for x in pr]; allp = np.concatenate(pr)
+        print(f'PAC vs HG amplitude: participant medians {np.min(med):.2f}-{np.max(med):.2f}; pooled median '
+              f'{np.median(allp[:, 1]):.3f} (n={len(allp)}), <8 Hz {np.median(allp[allp[:, 0] < 8, 1]):.3f}')
+    peaks = {}
+    for pt in pts:
+        f = os.path.join(out, f'lag_xcorr_{pt}.npz')
+        if not os.path.exists(f):
+            continue
+        z = np.load(f); lags = z['lags_ms']
+        for t in LAG_TIMINGS:
+            if t in z:
+                m = z[t].mean(0)
+                peaks.setdefault(t, []).append((pt, m[len(m) // 2], m.max(), lags[np.argmax(m)]))
+    for t, v in peaks.items():
+        r0 = np.array([x[1] for x in v]); pk = np.array([x[2] for x in v]); lg = np.array([x[3] for x in v])
+        print(f'SSR-HG vs {t:9s}: r(0) {r0.mean():.3f} (range {r0.min():.3f}-{r0.max():.3f}), peak r {pk.mean():.3f} '
+              f'(range {pk.min():.3f}-{pk.max():.3f}) at lags {sorted(set(lg.astype(int).tolist()))} ms (n={len(v)} participants)')
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--pts', nargs='+', default=['sub-01'])
     ap.add_argument('--out', default=os.path.join(os.environ.get('SSR_PATH_RESULT', './results'), 'filters'))
     ap.add_argument('--no-lag', action='store_true', help='skip the lagged-correlation analysis')
+    ap.add_argument('--aggregate', action='store_true', help='only summarise existing outputs in --out over --pts')
     args = ap.parse_args()
     os.makedirs(args.out, exist_ok=True)
+    if args.aggregate:
+        aggregate(args.out, args.pts)
+        return
     for pt in args.pts:
         params_list = nf.get_initParams(pt)
         rows = filter_table(params_list)
