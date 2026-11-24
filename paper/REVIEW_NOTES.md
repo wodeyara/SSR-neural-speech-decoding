@@ -131,7 +131,8 @@ Contrasts are within-participant corrected resampled t-tests over the 10 folds.
 | HG + LP amplitude | | 0.667 (vs HG −0.006, n.s.) |
 | HG + LP (amp + phase) | | 0.725 (vs HG + LP amp +0.058, p = 0.001) |
 | HG + LP, delay-compensated | | 0.725 (no change) |
-| HG + LP, past-only context | | 0.672 (−0.053, p < 0.001) |
+| HG + LP, causal FIR, past-only context (fully causal) | −600 … −200 ms | 0.672 (−0.053, p < 0.001) |
+| HG + LP, delay-compensated FIR, past-only context | −400 … 0 ms | 0.725 (same as published) |
 | HG + LP + PAC (bandpass PAC) | | 0.726 (+0.001, n.s.) |
 | HG + LP + phase-resolved PAC | | 0.724 (n.s.) |
 | HG + LP + LMP | | 0.727 (+0.003, n.s.) |
@@ -141,7 +142,7 @@ effectively covers the 400 ms *before* each audio frame, and that window is far 
 Removing the delay and using past-only context gives exactly the same r (0.673) as the published causal FIR with ±200 ms context. The SSR
 features have a ~20 ms delay, so with the ±200 ms context they were decoded from the *less* informative window. **The published SSR-vs-HG
 comparison was therefore biased against SSR.** The fair comparisons are (i) both feature sets with past-only context (the realistic online
-setting) or (ii) matched effective windows. This is the most important analysis to run for all participants.
+setting) or (ii) matched effective windows. In a genuinely causal pipeline (causal FIR **and** past-only context), the bandpass HG + LP model loses 0.053 in sub-01, because its features then lag the audio by 200–600 ms. SSR, with ~20 ms delay, should not pay this price. This is the most important analysis to run for all participants.
 Other sub-01 observations: low-frequency *amplitude* adds nothing; the HG + LP gain comes entirely from the phase features. Bandpass PAC
 (either form) adds nothing.
 
