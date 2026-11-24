@@ -49,13 +49,30 @@ This is now in Methods and Limitations. Note that sub-06, where 90% of the HG os
 * Circular import `extract_features` ↔ `notebookfunctions` ↔ `reconstruction_minimal` (it worked only with the notebooks' import order).
 * `phaseEM` demo unpacked 5 return values from a 3-value function.
 
+### Fixed after review: 100 Hz line noise (changes all SSR numbers; SOMATA is being rerun)
+`range(0,4)` with `(i*100+49, i*100+51)` notched 50/150/250/350 Hz but **not 100 Hz**, before SOMATA and before SSR.
+100 Hz line noise is prominent mainly in **sub-05**: in the 10 s SOMATA segment, the 100 Hz bin is >3 dB above 92–97/103–108 Hz in 55/60 channels
+(>10 dB in 12, max 16.7 dB). Elsewhere it is ≤11 channels per participant and mostly <6 dB (sub-08: 2 channels >10 dB).
+Direct test on sub-05's two worst channels (22, 23):
+
+| channel | SOMATA, no 100 Hz notch (published) | SOMATA, with notch |
+|---|---|---|
+| 22 | 0.2, **99.7**, 188.1 Hz | 0.2, 172.5, 197.2, 205.8, 258.5, 162.2 Hz (no 70–170 Hz osc. → template) |
+| 23 | 0.2, **99.7**, 183.7 Hz | 0.2, 172.2, 230.7, 168.4 Hz |
+
+So the line-noise component was not an extra oscillator next to a genuine one: it was the channel's **only high-gamma oscillator**, i.e. its
+"HG amplitude" and PAC partner. Dropping it afterwards would have left these channels without HG (→ template), and line-noise oscillators would
+also have shaped the sub-05 template (peaks at 104/110 Hz). We therefore notch all 50 Hz harmonics (50–450 Hz) before SOMATA and SSR
+(`extract_features.LINE_NOISE_HZ`; `SSR_LEGACY_NOTCH=1` restores the old behaviour) and rerun SOMATA. `run_somata.py` reports any oscillator
+within ±2 Hz of a harmonic. Because no SOMATA results were saved, all SSR numbers had to be regenerated anyway. The bandpass HG pipeline already
+notched 100 Hz, so HG and HG+LP numbers do not change (sub-01 reproduced exactly).
+
 ### Not changed (they would change published numbers): decide and rerun
-1. **Line noise at 100 Hz is not removed before SSR.** `range(0,4)` with `(i*100+49, i*100+51)` notches 50/150/250/350 Hz. The PSD figure shows the 100 Hz peak (sub-05, sub-08), and sub-05's HG oscillators/template sit at 100–110 Hz. Recommend notching 100 (and 200) Hz.
-2. **Observation noise fixed at σ²_R = 1 µV²** instead of SOMATA's estimate (`obs_noise_R`, ≈0.3 µV² for sub-01 ch 1; signal variance ≈3×10⁴ µV²). The steady-state filters for R = 1 and R = 0.31 are practically identical (same bandwidths/delays to <0.1 Hz / 0.1 ms), so this is harmless. It is now stated in Methods.
-3. **Preprocessing is not causal in either pipeline**: whole-recording detrend, zero-phase notch filters, and (bandpass) a Hilbert transform of the whole recording. For the online claims, use causal notches for SSR. A truly causal bandpass needs a causal analytic signal (e.g. complex FIR / cFIR, Smetanin 2020).
-4. **Oscillator–spectrogram correlations (Fig. 5A, `report_figures` cell 4)**: SSR features (row j = window j) are correlated with `_spec.npy` (row j = window j+20). So neural activity at t is compared with audio at t+200 ms, and the initialisation segment (with zero states before 2 s) is included. The Mann–Whitney test treats oscillators of the same channel as independent.
-5. **PLS weights (Fig. 5B)** come from the last CV fold only (`est.coef_`), and weight magnitude ≠ relevance (Haufe et al. 2014). The cache branch in cell 9 leaves `weights` undefined.
-6. **`report_figures` cell 21** uses stale indices after HG+LP was added: `amp_sf = results[1]` is HG+LP. Its printed "gains" are amp+phase SSR − HG. Cell 25/26 labels are also off (e.g. "Adding phase improved … 4 of 10" compares amp+phase SSR with HG+LP).
+1. **Observation noise fixed at σ²_R = 1 µV²** instead of SOMATA's estimate (`obs_noise_R`, ≈0.3 µV² for sub-01 ch 1; signal variance ≈3×10⁴ µV²). The steady-state filters for R = 1 and R = 0.31 are practically identical (same bandwidths/delays to <0.1 Hz / 0.1 ms), so this is harmless. It is now stated in Methods.
+2. **Preprocessing is not causal in either pipeline**: whole-recording detrend, zero-phase notch filters, and (bandpass) a Hilbert transform of the whole recording. For the online claims, use causal notches for SSR. A truly causal bandpass needs a causal analytic signal (e.g. complex FIR / cFIR, Smetanin 2020).
+3. **Oscillator–spectrogram correlations (Fig. 5A, `report_figures` cell 4)**: SSR features (row j = window j) are correlated with `_spec.npy` (row j = window j+20). So neural activity at t is compared with audio at t+200 ms, and the initialisation segment (with zero states before 2 s) is included. The Mann–Whitney test treats oscillators of the same channel as independent.
+4. **PLS weights (Fig. 5B)** come from the last CV fold only (`est.coef_`), and weight magnitude ≠ relevance (Haufe et al. 2014). The cache branch in cell 9 leaves `weights` undefined.
+5. **`report_figures` cell 21** uses stale indices after HG+LP was added: `amp_sf = results[1]` is HG+LP. Its printed "gains" are amp+phase SSR − HG. Cell 25/26 labels are also off (e.g. "Adding phase improved … 4 of 10" compares amp+phase SSR with HG+LP).
 
 ---
 
@@ -102,7 +119,33 @@ Consequences:
    common n_comp = 8 the published conclusions hold; at n_comp = 5, HG+LP vs HG is not significant (t = 2.02, p_BH = 0.22). So nested CV matters.
 
 ### First results, sub-01 only (n_comp = 8; preliminary, not in the paper)
-PENDING
+Bandpass sets (unaffected by the notch change; HG n6 = 0.671384 and HG+LP n9 = 0.725876 reproduce the published sub-01 values exactly).
+Contrasts are within-participant corrected resampled t-tests over the 10 folds.
+
+| feature set (sub-01) | neural window seen by the decoder | r |
+|---|---|---|
+| HG, causal FIR (published), ±200 ms context | −400 … 0 ms (delay shifts it back by 199 ms) | 0.673 |
+| HG, delay-compensated FIR, ±200 ms context | −200 … +200 ms | **0.580** (−0.092, t = −9.0, p < 0.001) |
+| HG, delay-compensated FIR, past-only context | −400 … 0 ms | 0.673 |
+| HG, causal FIR, past-only context | −600 … −200 ms | 0.660 |
+| HG + LP amplitude | | 0.667 (vs HG −0.006, n.s.) |
+| HG + LP (amp + phase) | | 0.725 (vs HG + LP amp +0.058, p = 0.001) |
+| HG + LP, delay-compensated | | 0.725 (no change) |
+| HG + LP, past-only context | | 0.672 (−0.053, p < 0.001) |
+| HG + LP + PAC (bandpass PAC) | | 0.726 (+0.001, n.s.) |
+| HG + LP + phase-resolved PAC | | 0.724 (n.s.) |
+| HG + LP + LMP | | 0.727 (+0.003, n.s.) |
+
+**Key observation: the FIR delay helps the bandpass baseline.** The 199 ms delay shifts the bandpass HG features so that the ±200 ms context
+effectively covers the 400 ms *before* each audio frame, and that window is far more informative than −200…+200 ms (−0.09 in sub-01).
+Removing the delay and using past-only context gives exactly the same r (0.673) as the published causal FIR with ±200 ms context. The SSR
+features have a ~20 ms delay, so with the ±200 ms context they were decoded from the *less* informative window. **The published SSR-vs-HG
+comparison was therefore biased against SSR.** The fair comparisons are (i) both feature sets with past-only context (the realistic online
+setting) or (ii) matched effective windows. This is the most important analysis to run for all participants.
+Other sub-01 observations: low-frequency *amplitude* adds nothing; the HG + LP gain comes entirely from the phase features. Bandpass PAC
+(either form) adds nothing.
+
+SSR and matched-bandpass sets (with the 100 Hz notch): PENDING (SOMATA for sub-01 is running).
 
 ---
 
@@ -129,12 +172,32 @@ PENDING
 * Figures for sub-02…sub-10 spectrograms are referenced but not in the repo; they render as labelled placeholder boxes. Drop the PNGs into
   `paper/images/` with the same names and they will be used.
 
-## 5. Open TODOs (in order of importance)
+## 5. Where to run SOMATA and the comparisons
+
+No SOMATA results were saved, and the 100 Hz notch requires a rerun anyway, so everything SSR-related starts from SOMATA. Measured costs on a 4-core cloud container:
+
+| step | cost | notes |
+|---|---|---|
+| SOMATA (`run_somata.py`) | ~3 min per channel per core → **~60 core-hours** for 1103 channels | embarrassingly parallel over channels; checkpointed per channel; `--channels 0-63` splits a participant |
+| SSR / matched-bandpass / bandpass features | seconds to a few minutes per participant | steady-state SSR engine |
+| decoding (`run_comparisons.py`) | ~4–15 min per feature set per participant per core at fixed n_comp; nested selection ~4–6× | ~19 feature sets × 10 participants |
+
+Options:
+1. **Many-core machine or cluster (recommended if available).** With 32–64 cores SOMATA takes ~1–2 h. On a cluster, use one array job per
+   participant: `python run_somata.py --pts sub-0X --n-jobs $NCPU`. Commit `somata_results/*.json` (small) so nobody has to rerun it. Then run
+   `python run_comparisons.py --sets all --n-comp nested` (also parallel over participants via `--pts`).
+2. **This cloud session (running now).** `run_somata.py` is running here on 4 cores in the order sub-01, sub-05, sub-08, sub-02 … sub-10, writing
+   into `somata_results/`. Expect ~1.7 h per 127-channel participant, ~15 h in total, followed by decoding. Results are committed as they finish.
+   A long idle session may be reclaimed. The per-channel checkpoints make restarts cheap, but the checkpoints themselves are not committed.
+3. **Parallel cloud sessions.** One session per participant (each downloads the dataset, runs SOMATA and the comparisons for its participant and
+   pushes the JSON/result files to a branch) finishes in ~3–4 h wall time, at ~10× the compute of one session.
+
+## 6. Open TODOs (in order of importance)
+0. Rerun SOMATA with the 100 Hz notch (in progress, see §5) and regenerate all SSR numbers and figures.
 1. Run the matched comparisons for all participants: `python run_comparisons.py --sets all --n-comp nested` (and with `--causal-stack`), then
    `stats_contrasts.py` with the `cmp_*` prefixes. Fill Table 1 results and the red TODOs.
 2. Run `compare_filters.py --pts sub-01 … sub-10` with the saved SOMATA results to report filter bandwidths/delays, lags and PAC redundancy for all participants.
 3. Regenerate Fig. 4B (SSR vs bandpass correlation) with the delay-compensated bandpass and commit the code. Recompute the error-track correlations from the
    final predictions. Fix the time axis of the zoomed spectrogram.
-4. Decide on the 100 Hz notch; if changed, rerun SOMATA + all models.
 5. Forward-chaining stability analysis (train early, test later) if parameter stability is to be claimed strongly.
 6. Author list (R. Cavill?), affiliations, funding, CRediT, code DOI.
