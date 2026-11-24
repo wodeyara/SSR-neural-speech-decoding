@@ -28,6 +28,13 @@ LOW_FREQ_THRESHOLD = 20.0
 HG_RANGE = (70.0, 170.0)
 # Length of the FIR filters used for all bandpass features (409 taps -> 199 ms group delay)
 FIR_MEMORY_MS = 400
+# Line-noise harmonics removed (zero-phase 4th-order band-stop, +-1 Hz) before SOMATA and before the SSR and
+# matched-bandpass features. The published results notched (50, 150, 250, 350) Hz before SSR and
+# (50, 150, 250, 350, 450) Hz before SOMATA, i.e. the 100 Hz harmonic (inside the high-gamma range) was NOT removed.
+# Set the environment variable SSR_LEGACY_NOTCH=1 to reproduce the published features.
+LEGACY_NOTCH = os.environ.get('SSR_LEGACY_NOTCH', '0') == '1'
+LINE_NOISE_HZ = (50, 150, 250, 350) if LEGACY_NOTCH else (50, 100, 150, 200, 250, 300, 350, 400, 450)
+SOMATA_LINE_NOISE_HZ = (50, 150, 250, 350, 450) if LEGACY_NOTCH else LINE_NOISE_HZ
 
 #Small helper function to speed up the hilbert transform by extending the length of data to the next power of 2
 hilbert3 = lambda x: scipy.signal.hilbert(x, scipy.fftpack.next_fast_len(len(x)),axis=0)[:len(x)]
@@ -118,16 +125,21 @@ def _channel_oscillator_features(z, freqs, include_phase=True, include_pac=True,
     return np.column_stack(cols)
 
 
+def notch_line_noise(data, freqs=None, fs=None):
+    """Zero-phase 4th-order band-stop filters (f-1, f+1 Hz) at every frequency in freqs (default LINE_NOISE_HZ)."""
+    freqs = LINE_NOISE_HZ if freqs is None else freqs
+    fs = sr if fs is None else fs
+    for f in freqs:
+        sos = scipy.signal.iirfilter(4, [(f-1)/(fs/2),(f+1)/(fs/2)],btype='bandstop',output='sos')
+        data = scipy.signal.sosfiltfilt(sos,data,axis=0)
+    return data
+
+
 def _ssr_preprocess(data):
     """Linear detrend and notch filtering used before SSR (and matched-bandpass) features."""
     data = scipy.signal.detrend(data, axis=0)
-    #remove (harmonics of) line noise
-    #NOTE: (i*100+49, i*100+51) notches 50, 150, 250 and 350 Hz but NOT 100 Hz; kept as is so that
-    #features reproduce the published results (see paper/REVIEW_NOTES.md)
-    for i in range (0,4):
-        sos = scipy.signal.iirfilter(4, [(i*100+49)/(sr/2),(i*100+51)/(sr/2)],btype='bandstop',output='sos')
-        data = scipy.signal.sosfiltfilt(sos,data,axis=0)
-    return data
+    #remove (harmonics of) line noise; see LINE_NOISE_HZ / SSR_LEGACY_NOTCH above
+    return notch_line_noise(data)
 
 
 def _apply_fir(b, x, timing='causal'):

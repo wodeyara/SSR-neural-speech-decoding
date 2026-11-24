@@ -38,7 +38,10 @@ pts = ['sub-01', 'sub-02', 'sub-03', 'sub-04', 'sub-05','sub-06','sub-07', 'sub-
 
 # Paths can be overridden with environment variables so the pipeline runs on other machines.
 path_bids = os.environ.get('SSR_PATH_BIDS', '/Users/lisa/Documents/DSAI_year2/Marble/SingleWordProductionDutch/SingleWordProductionDutch-iBIDS')
-path_somata = os.environ.get('SSR_PATH_SOMATA', '/Users/lisa/Documents/DSAI_year2/SingleWordProductionDutch-1/somata')
+_lisa_somata = '/Users/lisa/Documents/DSAI_year2/SingleWordProductionDutch-1/somata'
+# SOMATA results: SSR_PATH_SOMATA, else the original location if it exists, else ./somata_results in this repository
+path_somata = os.environ.get('SSR_PATH_SOMATA', _lisa_somata if os.path.isdir(_lisa_somata)
+                             else os.path.join(os.path.dirname(os.path.abspath(__file__)), 'somata_results'))
 path_result = os.environ.get('SSR_PATH_RESULT', '/Users/lisa/Documents/DSAI_year2/SingleWordProductionDutch-1/results')
 
 def run_pipeline():
@@ -116,10 +119,9 @@ def get_eeg(participant, t_start=0, t_segment = 10):
     
     eeg = scipy.signal.detrend(eeg, axis=0)
     
-    #remove (harmonics of) line noise
-    for i in range (0,5):
-        sos = scipy.signal.iirfilter(4, [(i*100+49)/(sr/2),(i*100+51)/(sr/2)],btype='bandstop',output='sos')
-        eeg = scipy.signal.sosfiltfilt(sos,eeg,axis=0)
+    #remove (harmonics of) line noise. The published SOMATA fits used 50, 150, 250, 350 and 450 Hz only
+    #(no 100 Hz); see SOMATA_LINE_NOISE_HZ / SSR_LEGACY_NOTCH in extract_features.py
+    eeg = notch_line_noise(eeg, SOMATA_LINE_NOISE_HZ)
     return eeg
 
 
@@ -192,6 +194,20 @@ def run_somata():
         # Save
         np.save(os.path.join(path_somata, f'{participant}_somata_results.npy'), channel_results)
 
+def load_somata_results(participant):
+    """
+    Load the SOMATA results of a participant: {channel: {'freqs', 'damping', 'sigma2', 'obs_noise_R', ...}}.
+    Reads {participant}_somata_results.npy if present, otherwise the (committable) .json written by run_somata.py.
+    """
+    npy = os.path.join(path_somata, f'{participant}_somata_results.npy')
+    if os.path.exists(npy):
+        return np.load(npy, allow_pickle=True).item()
+    import json
+    with open(os.path.join(path_somata, f'{participant}_somata_results.json')) as f:
+        raw = json.load(f)['channels']
+    return {int(ch): {k: (np.asarray(v) if isinstance(v, list) else v) for k, v in r.items()} for ch, r in raw.items()}
+
+
 def get_initParams(participant):
     """
     Build initialization parameters for SSPE algorithm for all channels.
@@ -213,7 +229,7 @@ def get_initParams(participant):
         Each dict contains: freqs, Fs, ampVec, sigmaFreqs, sigmaObs,
         windowSize, lowFreqBand
     """
-    somata_results = np.load(os.path.join(path_somata,f'{participant}_somata_results.npy'),allow_pickle=True).item()
+    somata_results = load_somata_results(participant)
     template_freqs = build_density_template(somata_results)
     template_a, template_s = get_template_parameters(somata_results, template_freqs) 
     template_freqs = np.array(template_freqs)
