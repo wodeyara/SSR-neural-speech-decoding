@@ -106,6 +106,18 @@ Consequences:
   The phase-resolved variant (Re/Im of the same complex mean = A_HG cos φ, A_HG sin φ) carries the amplitude–phase interaction
   that a linear decoder cannot construct; it is implemented as `pac_mode='complex'`.
 
+### How the bandpass features compare with the literature
+| pipeline | bandpass | analytic signal / feature | context | delay |
+|---|---|---|---|---|
+| **Verwoert et al. 2022** (code in this repo's history, commit `3a7c314`; paper: "IIR bandpass filter (filter order 4)") | 4th-order Butterworth IIR 70–170 Hz, `sosfiltfilt` on the whole recording | Hilbert of the whole recording, mean envelope per 50 ms | ±200 ms | none (offline, non-causal); PCA(50) + linear regression |
+| **Angrick et al. 2021** (real-time sEEG synthesis, same group) | 8th-order IIR bandpass + elliptic notches, causal, filter state preserved across packets | log power per 50 ms window | −200 … 0 ms ("context stacking of future frames is not utilized to avoid additional latency") | a few ms (IIR phase) |
+| **Draft paper (Lisa)** | 409-tap FIR, causal (`lfilter`) | Hilbert of the whole recording (non-causal) | ±200 ms | 199 ms |
+| **Buffered (proposed)** | Verwoert IIR, `sosfiltfilt` on the 400 ms ending at each window's last sample | Hilbert within the buffer, mean of the last 50 ms | either | none nominally; causal, but the estimate sits at the buffer edge |
+
+`extractHG(timing=...)` now implements all four: `'verwoert'` (reproduces the original code to 1e-13), `'streaming_iir'`, `'causal'` (draft default) and
+`'buffered'`. On 60 s of sub-01 the buffered HG envelope correlates 0.92 (median over channels, log scale) with the offline Verwoert envelope at zero lag.
+Streaming IIR log power correlates 0.72, with a ~7–10 ms delay in the high-gamma band.
+
 ### How to make the two frameworks comparable (implemented in `run_comparisons.py`)
 1. **Symmetric ladders.** Each SSR feature set gets a bandpass counterpart that differs in one factor (paper Table 1):
    `HG_LPamp` (mirrors amplitude-only SSR, which also has LF amplitudes), `HG_LP` (mirrors +phase), `HG_LP_PAC`
