@@ -67,6 +67,23 @@ also have shaped the sub-05 template (peaks at 104/110 Hz). We therefore notch a
 within ±2 Hz of a harmonic. Because no SOMATA results were saved, all SSR numbers had to be regenerated anyway. The bandpass HG pipeline already
 notched 100 Hz, so HG and HG+LP numbers do not change (sub-01 reproduced exactly).
 
+#### SOMATA rerun with the notch (all participants; `somata_results/*.json`)
+| participant | channels | oscillators | near line-noise harmonics (dropped) | of which ~100 Hz | channels needing HG template (new) | (old pipeline) |
+|---|---|---|---|---|---|---|
+| sub-01 | 127 | 730 | 10 | 4 | 10 (8%) | 50 |
+| sub-02 | 127 | 665 | 17 | 10 | 23 (18%) | 62 |
+| sub-03 | 127 | 570 | 17 | 8 | 13 (10%) | 17 |
+| sub-04 | 115 | 591 | 6 | 5 | 8 (7%) | 45 |
+| sub-05 | 60 | 242 | 4 | 3 | 4 (7%) | 7 |
+| sub-06 | 127 | 492 | 10 | 0 | 98 (77%) | 114 |
+| sub-07 | 127 | 542 | 14 | 6 | 7 (6%) | 7 |
+| sub-08 | 54 | 251 | 6 | 4 | 14 (26%) | 15 |
+| sub-09 | 117 | 527 | 24 | 0 | 39 (33%) | 60 |
+| sub-10 | 122 | 628 | 6 | 3 | 11 (9%) | 51 |
+| **total** | 1103 | 5238 | 114 | 43 | 227 (21%) | 428 (39%) |
+
+Oscillators within 2 Hz of a harmonic are dropped in `get_initParams`; a channel left without a high-gamma oscillator gets the template.
+
 ### Not changed (they would change published numbers): decide and rerun
 1. **Observation noise fixed at σ²_R = 1 µV²** instead of SOMATA's estimate (`obs_noise_R`, ≈0.3 µV² for sub-01 ch 1; signal variance ≈3×10⁴ µV²). The steady-state filters for R = 1 and R = 0.31 are practically identical (same bandwidths/delays to <0.1 Hz / 0.1 ms), so this is harmless. It is now stated in Methods.
 2. **Preprocessing is not causal in either pipeline**: whole-recording detrend, zero-phase notch filters, and (bandpass) a Hilbert transform of the whole recording. For the online claims, use causal notches for SSR. A truly causal bandpass needs a causal analytic signal (e.g. complex FIR / cFIR, Smetanin 2020).
