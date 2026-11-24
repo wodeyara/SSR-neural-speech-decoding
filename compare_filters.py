@@ -1,0 +1,220 @@
+"""
+What happens between the bandpass filter and the SSR model?
+
+For one or more participants this script characterises the SSR oscillators as the causal,
+complex (quadrature) LTI filters they become once the Kalman gain has converged
+(see ssr_filter.py), and compares them with the FIR filters of the bandpass baseline:
+
+  A. magnitude responses of the SSR oscillators of an example channel, with the
+     70-170 Hz high-gamma FIR and <20 Hz low-pass FIR of extractHG overlaid;
+  B. -3 dB bandwidth and group delay of every SSR oscillator versus its centre frequency,
+     compared with the 199 ms group delay of the 409-tap FIR filters;
+  C. lagged correlation between the SSR high-gamma amplitude features and the bandpass
+     high-gamma envelope (causal FIR and delay-compensated FIR): the lag at the peak shows
+     the relative delay of the two feature sets;
+  D. cost of a streaming (sample-by-sample) steady-state SSR update for the full montage.
+
+Outputs (in --out): filter_summary_{pt}.csv, lag_xcorr_{pt}.npz, ssr_vs_bandpass_filters_{pt}.png/.pdf,
+and a printed summary.
+
+Usage:
+    export SSR_PATH_BIDS=... SSR_PATH_SOMATA=... SSR_PATH_FEATURES=...
+    python compare_filters.py --pts sub-01 --out ./results/filters
+"""
+import argparse
+import csv
+import os
+import time
+
+import numpy as np
+import scipy.signal
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+
+import extract_features as ef
+import notebookfunctions as nf
+import ssr_filter as sf
+
+FS = 1024
+
+
+def filter_table(params_list):
+    rows = []
+    for ch, p in enumerate(params_list):
+        f_max = min(FS / 2 - 1, 1.5 * max(p['freqs']) + 40)
+        for j, s in enumerate(sf.summarize_oscillator_filters(p, f_max=f_max, df=0.05)):
+            s.update(channel=ch, osc=j, n_osc=len(p['freqs']), damping=float(p['ampVec'][j]),
+                     sigma2=float(p['sigmaFreqs'][j]))
+            rows.append(s)
+    return rows
+
+
+def fir_response(f_axis):
+    n_taps = ef._fir_taps()
+    hg = scipy.signal.firwin(n_taps, [70 / (FS / 2), 170 / (FS / 2)], pass_zero=False, window='hamming')
+    lp = scipy.signal.firwin(n_taps, 20 / (FS / 2), pass_zero='lowpass', window='hamming')
+    _, Hhg = scipy.signal.freqz(hg, worN=f_axis, fs=FS)
+    _, Hlp = scipy.signal.freqz(lp, worN=f_axis, fs=FS)
+    return np.abs(Hhg), np.abs(Hlp), sf.fir_bandpass_group_delay_ms(n_taps, FS)
+
+
+def lagged_corr(a, b, max_lag):
+    """corr(a[t], b[t+lag]) for lag in -max_lag..max_lag (frames). Positive lag: b lags a."""
+    a = (a - a.mean()) / a.std()
+    b = (b - b.mean()) / b.std()
+    out = np.zeros(2 * max_lag + 1)
+    for i, lag in enumerate(range(-max_lag, max_lag + 1)):
+        if lag >= 0:
+            out[i] = np.mean(a[:len(a) - lag] * b[lag:])
+        else:
+            out[i] = np.mean(a[-lag:] * b[:len(b) + lag])
+    return out
+
+
+def hg_lag_analysis(pt, params_list, eeg, max_lag_ms=400):
+    """Lagged correlation between SSR HG-oscillator amplitudes and HG bandpass envelopes."""
+    drop = int(10 / ef.frameshift)          # the 10 s initialisation segment, as in decoding
+    ssr = ef.extractSSPE(eeg, params_list, include_phase=False, include_pac=False, engine='steady_state')
+    hg = {t: ef.extractHG(eeg, timing=t) for t in ('causal', 'delay_compensated')}
+    max_lag = int(max_lag_ms / (ef.frameshift * 1000))
+    curves = {t: [] for t in hg}
+    col = 0
+    for ch, p in enumerate(params_list):
+        for j, f in enumerate(p['freqs']):
+            if 70 <= f <= 170:
+                for t in hg:
+                    curves[t].append(lagged_corr(ssr[drop:, col + j], hg[t][drop:, ch], max_lag))
+        col += len(p['freqs'])
+    lags_ms = np.arange(-max_lag, max_lag + 1) * ef.frameshift * 1000
+    return lags_ms, {t: np.array(c) for t, c in curves.items()}
+
+
+def pac_redundancy(params_list, eeg):
+    """
+    How much does the windowed PAC feature, |mean_W(A_HG exp(i phi_low))|, differ from the
+    window-mean HG amplitude it is built from? For a slow oscillator the phase hardly changes
+    within a 50 ms window, so |mean(A e^{i phi})| ~ mean(A) * |mean(e^{i phi})| ~ mean(A).
+    Returns, per low-frequency oscillator, its frequency and corr(PAC feature, HG amplitude feature).
+    """
+    drop = int(10 / ef.frameshift)
+    feat = ef.extractSSPE(eeg, params_list, include_phase=True, include_pac=True, engine='steady_state')
+    out, col = [], 0
+    for p in params_list:
+        freqs = np.asarray(p['freqs'])
+        starts = []
+        for f in freqs:
+            starts.append(col)
+            col += 1 + (3 if f < ef.LOW_FREQ_THRESHOLD else 0)
+        hg = next(j for j, f in enumerate(freqs) if ef.HG_RANGE[0] < f < ef.HG_RANGE[1])
+        a_hg = feat[drop:, starts[hg]]
+        for j, f in enumerate(freqs):
+            if f < ef.LOW_FREQ_THRESHOLD:
+                out.append((f, np.corrcoef(feat[drop:, starts[j] + 3], a_hg)[0, 1]))
+    return np.array(out)
+
+
+def streaming_benchmark(params_list, eeg, seconds=20, frame=10):
+    """
+    Per-frame cost of updating the steady-state SSR states of ALL channels sample by sample
+    (frame = 10 samples ~ 10 ms) with the diagonalised form s_t = lam*s_{t-1} + b*y_t.
+    """
+    lam, b, idx = [], [], []
+    for ch, p in enumerate(params_list):
+        A, K = sf.ssr_lti(p)
+        l, V = np.linalg.eig(A)
+        lam.append(l); b.append(np.linalg.solve(V, K).ravel()); idx.append(np.full(len(l), ch))
+    lam, b, idx = np.concatenate(lam), np.concatenate(b), np.concatenate(idx)
+    x = ef._ssr_preprocess(eeg[:int(seconds * FS)].astype(float))
+    s = np.zeros(len(lam), complex)
+    times = []
+    for start in range(0, x.shape[0] - frame, frame):
+        t0 = time.perf_counter()
+        for t in range(start, start + frame):
+            s = lam * s + b * x[t, idx]
+        times.append((time.perf_counter() - t0) * 1000)
+    times = np.array(times[50:])
+    return dict(n_modes=len(lam), mean_ms=times.mean(), p95_ms=np.percentile(times, 95), max_ms=times.max())
+
+
+def plot(pt, rows, params_list, lags_ms, curves, out):
+    fig, axes = plt.subplots(1, 3, figsize=(15, 4.2))
+    # A: example channel = channel with most oscillators that has an own (non-template) HG oscillator
+    ex = max(range(len(params_list)), key=lambda c: (len(params_list[c]['freqs']) <= 6,
+                                                      any(70 <= f <= 170 for f in params_list[c]['freqs'][:4]),
+                                                      len(params_list[c]['freqs'])))
+    f_axis = np.arange(0.1, 200, 0.1)
+    H = sf.frequency_response(params_list[ex], f_axis)
+    Hhg, Hlp, _ = fir_response(f_axis)
+    ax = axes[0]
+    for j, f in enumerate(params_list[ex]['freqs']):
+        m = np.abs(H[j]); ax.plot(f_axis, m / m.max(), lw=1.5, label=f'SSR osc. {f:.0f} Hz')
+    ax.plot(f_axis, Hhg, 'k--', lw=1.2, label='HG FIR 70-170 Hz')
+    ax.plot(f_axis, Hlp, 'k:', lw=1.2, label='LP FIR <20 Hz')
+    ax.set_xlabel('Frequency (Hz)'); ax.set_ylabel('Normalised |H(f)|'); ax.set_title(f'A  {pt}, channel {ex}')
+    ax.legend(fontsize=7, loc='upper right'); ax.set_xlim(0, 200)
+    # B: group delay vs centre frequency
+    ax = axes[1]
+    fr = np.array([r['freq'] for r in rows]); gd = np.array([r['group_delay_ms'] for r in rows])
+    bw = np.array([r['bandwidth'] for r in rows])
+    sc = ax.scatter(fr, gd, c=bw, s=8, cmap='viridis')
+    ax.axhline(sf.fir_bandpass_group_delay_ms(ef._fir_taps(), FS), color='k', ls='--', lw=1.2, label='409-tap FIR (HG & LP)')
+    ax.set_xlabel('SSR oscillator frequency (Hz)'); ax.set_ylabel('Group delay at peak (ms)')
+    ax.set_yscale('log'); ax.set_title('B  all channels'); ax.legend(fontsize=8)
+    plt.colorbar(sc, ax=ax, label='-3 dB bandwidth (Hz)')
+    # C: lagged correlation
+    ax = axes[2]
+    for t, lab, ls in (('causal', 'causal FIR (published)', '-'), ('delay_compensated', 'delay-compensated FIR', '--')):
+        c = curves[t]; m = c.mean(0)
+        ax.plot(lags_ms, m, ls, label=f'{lab}: peak {lags_ms[np.argmax(m)]:+.0f} ms')
+        ax.fill_between(lags_ms, m - c.std(0) / np.sqrt(len(c)), m + c.std(0) / np.sqrt(len(c)), alpha=0.2)
+    ax.axvline(0, color='grey', lw=0.8)
+    ax.set_xlabel('Lag of bandpass envelope relative to SSR amplitude (ms)')
+    ax.set_ylabel('Correlation (mean over HG oscillators)'); ax.set_title('C  SSR-HG vs bandpass HG'); ax.legend(fontsize=8)
+    fig.tight_layout()
+    for ext in ('png', 'pdf'):
+        fig.savefig(os.path.join(out, f'ssr_vs_bandpass_filters_{pt}.{ext}'), dpi=300)
+    plt.close(fig)
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument('--pts', nargs='+', default=['sub-01'])
+    ap.add_argument('--out', default=os.path.join(os.environ.get('SSR_PATH_RESULT', './results'), 'filters'))
+    ap.add_argument('--no-lag', action='store_true', help='skip the lagged-correlation analysis')
+    args = ap.parse_args()
+    os.makedirs(args.out, exist_ok=True)
+    for pt in args.pts:
+        params_list = nf.get_initParams(pt)
+        rows = filter_table(params_list)
+        with open(os.path.join(args.out, f'filter_summary_{pt}.csv'), 'w', newline='') as f:
+            w = csv.DictWriter(f, fieldnames=list(rows[0])); w.writeheader(); w.writerows(rows)
+        fr = np.array([r['freq'] for r in rows]); gd = np.array([r['group_delay_ms'] for r in rows])
+        bw = np.array([r['bandwidth'] for r in rows])
+        for name, m in (('HG (70-170 Hz)', (fr >= 70) & (fr <= 170)), ('LF (<20 Hz)', fr < 20), ('other', (fr >= 20) & (fr < 70) | (fr > 170))):
+            if m.any():
+                print(f'{pt} {name:15s} n={m.sum():4d}  bandwidth median {np.median(bw[m]):6.1f} Hz '
+                      f'[IQR {np.percentile(bw[m], 25):.1f}-{np.percentile(bw[m], 75):.1f}]  group delay median '
+                      f'{np.median(gd[m]):6.1f} ms [IQR {np.percentile(gd[m], 25):.1f}-{np.percentile(gd[m], 75):.1f}], max {gd[m].max():.1f}')
+        eeg = ef.load_participant(pt)[0]
+        bench = streaming_benchmark(params_list, eeg)
+        print(f"{pt} streaming steady-state SSR update, all {len(params_list)} channels ({bench['n_modes']} complex modes): "
+              f"{bench['mean_ms']:.3f} ms per 10 ms frame (p95 {bench['p95_ms']:.3f}, max {bench['max_ms']:.3f})")
+        if args.no_lag:
+            continue
+        pr = pac_redundancy(params_list, eeg)
+        np.save(os.path.join(args.out, f'pac_redundancy_{pt}.npy'), pr)
+        print(f'{pt} corr(SSR PAC feature, HG amplitude feature): median {np.median(pr[:, 1]):.3f} '
+              f'[IQR {np.percentile(pr[:, 1], 25):.3f}-{np.percentile(pr[:, 1], 75):.3f}], min {pr[:, 1].min():.3f} '
+              f'over {len(pr)} low-frequency oscillators; median for <8 Hz: {np.median(pr[pr[:, 0] < 8, 1]):.3f}')
+        lags_ms, curves = hg_lag_analysis(pt, params_list, eeg)
+        np.savez(os.path.join(args.out, f'lag_xcorr_{pt}.npz'), lags_ms=lags_ms, **curves)
+        for t, c in curves.items():
+            m = c.mean(0)
+            print(f'{pt} SSR-HG vs {t:17s} HG envelope: r(0) = {m[len(m)//2]:.3f}, peak r = {m.max():.3f} at {lags_ms[np.argmax(m)]:+.0f} ms '
+                  f'(n = {len(c)} HG oscillators)')
+        plot(pt, rows, params_list, lags_ms, curves, args.out)
+
+
+if __name__ == '__main__':
+    main()

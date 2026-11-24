@@ -1,5 +1,5 @@
 import numpy as np
-import time
+import time as _time  # imported under another name: the `time` argument below used to shadow it
 '''causal phase estimates using the SP model and EM with fixed interval
 % smoothing across windows of data
 % primary benefit: assume a transitory burst of oscillatory activity in the
@@ -36,6 +36,10 @@ returns [phase,phaseBounds,allX_full,phaseWidth,returnParams]
 def causalPhaseEM_MKmdl_noSeg(y, initParams, flagNoFit, time= False, warmup_blocks=40):
     """
     Real-time causal phase estimation using oscillator-based state-space model and EM parameter updates.
+
+    time : bool
+        If True, time every 50 ms block of Kalman updates and return the statistics in
+        returnParams['_timing_50ms'] (the first `warmup_blocks` blocks are discarded).
     """
     try:
         freqs = np.array(initParams["freqs"])
@@ -126,7 +130,7 @@ def causalPhaseEM_MKmdl_noSeg(y, initParams, flagNoFit, time= False, warmup_bloc
             if time:
                 # Start timing at beginning of each 50 ms block
                 if (tp - windowSize) % samples_in_50ms == 0:
-                    block_start = time.perf_counter()
+                    block_start = _time.perf_counter()
 
 
             x_new, P_new = oneStepKFupdate_sspp(x, y[tp], phi, M, Q, R, P)
@@ -199,7 +203,7 @@ def causalPhaseEM_MKmdl_noSeg(y, initParams, flagNoFit, time= False, warmup_bloc
                 if (block_start is not None
                     and (tp - windowSize + 1) % samples_in_50ms == 0
                 ):
-                    elapsed_ms = (time.perf_counter() - block_start) * 1000
+                    elapsed_ms = (_time.perf_counter() - block_start) * 1000
                     block_times_ms.append(elapsed_ms)
                     block_start = None
            
@@ -297,12 +301,12 @@ def oneStepKFupdate_sspp(x, y, phi, M, Q, R, P):
     assert P_pred.shape == (n_states, n_states), f"P_pred wrong shape: {P_pred.shape}"
 
     # ---- Kalman gain ----
-    denom = float(M.T @ P_pred @ M + R)
+    denom = (M.T @ P_pred @ M + R).item()
     K = (P_pred @ M) / denom
     assert K.shape == (n_states, 1), f"K wrong shape: {K.shape}"
 
     # ---- Update step ----
-    innovation = float(y - (M.T @ x_pred))
+    innovation = (y - (M.T @ x_pred)).item()
     x_new = x_pred + K * innovation
     P_new = (np.eye(n_states) - K @ M.T) @ P_pred
     P_new = 0.5 * (P_new + P_new.T)
@@ -410,7 +414,7 @@ def fit_MKModel_multSines(data, freqs, Fs, ampVec, sigmaFreqs, sigmaObs):
         # For final time N-1 (MATLAB indexing), compute as in original
         if N >= 2:
             P_tmp = phi @ allP[:, :, -2] @ phi.T + Q
-            K_tmp = P_tmp @ M / (float(M.T @ P_tmp @ M) + R)
+            K_tmp = P_tmp @ M / ((M.T @ P_tmp @ M).item() + R)
             P_N_N1 = (np.eye(n_states) - K_tmp @ M.T) @ phi @ allP[:, :, -2]
             allP_N_N1[:, :, -1] = P_N_N1
 
@@ -438,8 +442,8 @@ def fit_MKModel_multSines(data, freqs, Fs, ampVec, sigmaFreqs, sigmaObs):
                 A = A + newAllP[:, :, i - 1] + np.outer(newAllX[:, i - 1], newAllX[:, i - 1])
                 B = B + allP_N_N1[:, :, i] + np.outer(newAllX[:, i], newAllX[:, i - 1])
             C = C + newAllP[:, :, i] + np.outer(newAllX[:, i], newAllX[:, i])
-            y_minus = y[i] - float(M.T @ newAllX[:, i].reshape((n_states, 1)))
-            R_num = R_num + float(M.T @ newAllP[:, :, i] @ M) + (y_minus * y_minus)
+            y_minus = y[i] - (M.T @ newAllX[:, i].reshape((n_states, 1))).item()
+            R_num = R_num + (M.T @ newAllP[:, :, i] @ M).item() + (y_minus * y_minus)
 
         R = (1.0 / N) * R_num
 
@@ -569,7 +573,8 @@ def demo_mu_rhythm_phase_estimation():
 
     # --- Run causal phase estimation ---
     print("Running causal phase estimation...")
-    phase, phaseBounds, allX_full, phaseWidth, returnParams = causalPhaseEM_MKmdl_noSeg(data, initParams, flagNoFit=0)
+    phase, allX_full, returnParams = causalPhaseEM_MKmdl_noSeg(data, initParams, flagNoFit=0)
+    phase = phase[:, 1]  # 11 Hz oscillator
 
     print("Estimated parameters:")
     for k, v in returnParams.items():
@@ -581,14 +586,6 @@ def demo_mu_rhythm_phase_estimation():
     # Top plot: phase + confidence
     plt.subplot(2, 1, 1)
     plt.plot(phase, label="Estimated Phase", color="b")
-    plt.fill_between(
-        np.arange(len(phase)),
-        phaseBounds[:, 0],
-        phaseBounds[:, 1],
-        color="red",
-        alpha=0.3,
-        label="95% Credible Interval",
-    )
     plt.title("Estimated Phase for Mu-Rhythm (8–14 Hz)")
     plt.ylabel("Phase (radians)")
     plt.legend()
@@ -605,7 +602,7 @@ def demo_mu_rhythm_phase_estimation():
     plt.tight_layout()
     plt.show()
 
-    return phase, phaseBounds, allX_full, phaseWidth, returnParams
+    return phase, allX_full, returnParams
 
 
 # to run the demo:

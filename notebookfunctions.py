@@ -36,9 +36,10 @@ stepSize = 5
 sr=1024
 pts = ['sub-01', 'sub-02', 'sub-03', 'sub-04', 'sub-05','sub-06','sub-07', 'sub-08', 'sub-09', 'sub-10']
 
-path_bids = '/Users/lisa/Documents/DSAI_year2/Marble/SingleWordProductionDutch/SingleWordProductionDutch-iBIDS'
-path_somata = '/Users/lisa/Documents/DSAI_year2/SingleWordProductionDutch-1/somata'
-path_result = '/Users/lisa/Documents/DSAI_year2/SingleWordProductionDutch-1/results'
+# Paths can be overridden with environment variables so the pipeline runs on other machines.
+path_bids = os.environ.get('SSR_PATH_BIDS', '/Users/lisa/Documents/DSAI_year2/Marble/SingleWordProductionDutch/SingleWordProductionDutch-iBIDS')
+path_somata = os.environ.get('SSR_PATH_SOMATA', '/Users/lisa/Documents/DSAI_year2/SingleWordProductionDutch-1/somata')
+path_result = os.environ.get('SSR_PATH_RESULT', '/Users/lisa/Documents/DSAI_year2/SingleWordProductionDutch-1/results')
 
 def run_pipeline():
     """
@@ -64,18 +65,24 @@ def run_pipeline():
     run_somata()
 
     #extract the features you want for each participant
+    #(features are saved UNSTACKED; reconstruct() drops the first 10 s and then stacks them.
+    # File names and n_comp values are those used for the paper.)
     for pt in pts:
+        extract_spectrogram(pt)
         initParams_list = get_initParams(pt)
-        run_extract_features(pt, initParams_list, SSPE=True, include_phase = True, include_pac = True, saveAs= '_pacSSPEfeat')
-        run_extract_features(pt, initParams_list, SSPE=True, include_phase = True, include_pac = False, saveAs= '_phaseSSPEfeat')
-        run_extract_features(pt, initParams_list, SSPE=True, include_phase = False, include_pac = False, saveAs= '_ampSSPEfeat')
-        run_extract_features(pt, None, SSPE=False, saveAs= '_bandpassfeat')
+        run_extract_features(pt, initParams_list, SSPE=True, include_phase = True, include_pac = True, saveAs= '_PCA_SSPEfeat')
+        run_extract_features(pt, initParams_list, SSPE=True, include_phase = True, include_pac = False, saveAs= '_PHASE_SSPEfeat')
+        run_extract_features(pt, initParams_list, SSPE=True, include_phase = False, include_pac = False, saveAs= '_onlyAMP_SSPEfeat')
+        run_extract_features(pt, None, SSPE=False, saveAs= '_final_bandpass_hg')
+        run_extract_features(pt, None, SSPE=False, low_pass=True, saveAs= '_final_bandpass_hg_lp')
 
-    #reconstruct with all feature sets
-    reconstruct(pts=None,  n_comp = 9, feat_suffix='_phaseSSPEfeat.npy', unstacked =True, saveAs='phase_sppe_cropped')
-    reconstruct(pts=None,  n_comp = 9, feat_suffix='_ampSSPEfeat.npy', unstacked =True, saveAs='only_AMP_sppe_cropped')
-    reconstruct(pts=None,  n_comp = 9, feat_suffix='_pacSSPEfeat.npy', unstacked =True, saveAs='PAC_sspe_cropped')
-    reconstruct(pts=None,  n_comp = 5, feat_suffix='_bandpassfeat.npy', unstacked =False, saveAs='CausalHG_cropped')
+    #reconstruct with all feature sets (PLS components as selected in report_figures.ipynb)
+    reconstruct(pts=None,  n_comp = 6, feat_suffix='_final_bandpass_hg.npy', unstacked =True, saveAs='res_final_bandpass_hg')
+    reconstruct(pts=None,  n_comp = 9, feat_suffix='_final_bandpass_hg_lp.npy', unstacked =True, saveAs='res_final_bandpass_hg_lp')
+    reconstruct(pts=None,  n_comp = 8, feat_suffix='_onlyAMP_SSPEfeat.npy', unstacked =True, saveAs='res_onlyAMP_SSPEfeat')
+    reconstruct(pts=None,  n_comp = 8, feat_suffix='_PHASE_SSPEfeat.npy', unstacked =True, saveAs='res_PHASE_SSPEfeat')
+    reconstruct(pts=None,  n_comp = 8, feat_suffix='_PCA_SSPEfeat.npy', unstacked =True, saveAs='res_PCA_SSPEfeat')
+    #matched bandpass comparisons and statistics: see run_comparisons.py and stats_contrasts.py
 
 
 def get_eeg(participant, t_start=0, t_segment = 10):
@@ -555,8 +562,10 @@ def highest_hg_mel_correlations(pt):
     eeg_sr = 1024
 
     feat_path = r'./features'
-    hg = extractHG(eeg,eeg_sr) #compute unstacked features
+    hg = extractHG(eeg) #compute unstacked features (previously extractHG(eeg, eeg_sr), which set low_pass=1024)
     melSpec = np.load(os.path.join(feat_path,f'{pt}_spec.npy'))
+    # _spec.npy is trimmed by modelOrder*stepSize windows at the start (aligned to stacked features)
+    hg = hg[modelOrder*stepSize:]
 
     # Reduce mel spectrogram to 1D speech envelope
     audio_ref = np.mean(melSpec, axis=1)
