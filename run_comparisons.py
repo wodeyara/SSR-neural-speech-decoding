@@ -60,6 +60,17 @@ FEATURE_SETS = {
     'HG_LP_PACc':  ('_bp_hg_lp_pacc',        'hg',  dict(low_pass=True, include_pac=True, pac_mode='complex'), None),
     'HG_LP_LMP':   ('_bp_hg_lp_lmp',         'hg',  dict(low_pass=True, include_lmp=True), None),
     'SSR_pacc':    ('_ssr_pacc',             'ssr', dict(include_phase=True, include_pac=True, pac_mode='complex'), None),
+    # --- bandpass definitions from the literature (see extract_features.extractHG, `timing`) ---
+    # Verwoert et al. 2022: zero-phase IIR + Hilbert on the whole recording (offline reference)
+    'HG_vw':       ('_bp_hg_vw',             'hg',  dict(low_pass=False, timing='verwoert'), None),
+    'HG_LP_vw':    ('_bp_hg_lp_vw',          'hg',  dict(low_pass=True, timing='verwoert'), None),
+    'HG_LP_PAC_vw': ('_bp_hg_lp_pac_vw',     'hg',  dict(low_pass=True, include_pac=True, timing='verwoert'), None),
+    # causal, buffer-wise: zero-phase IIR + Hilbert on the 400 ms ending at each window, mean of last 50 ms
+    'HG_buf':      ('_bp_hg_buf',            'hg',  dict(low_pass=False, timing='buffered'), None),
+    'HG_LP_buf':   ('_bp_hg_lp_buf',         'hg',  dict(low_pass=True, timing='buffered'), None),
+    'HG_LP_PAC_buf': ('_bp_hg_lp_pac_buf',   'hg',  dict(low_pass=True, include_pac=True, timing='buffered'), None),
+    # Angrick et al. 2021 real-time system: causal IIR with continuous state, log window power
+    'HG_iir':      ('_bp_hg_iir',            'hg',  dict(low_pass=False, timing='streaming_iir'), None),
     # --- same FIR, delay-compensated (removes the 199 ms group delay) ---
     'HG_dc':       ('_bp_hg_dc',             'hg',  dict(low_pass=False, timing='delay_compensated'), None),
     'HG_LP_dc':    ('_bp_hg_lp_dc',          'hg',  dict(low_pass=True, timing='delay_compensated'), None),
@@ -86,6 +97,9 @@ MATCHED_CONTRASTS = [
     ('SSR_amp', 'BPm_amp_dc'), ('SSR_phase', 'BPm_phase_dc'), ('SSR_pac', 'BPm_pac_dc'),
     # filter delay
     ('HG_dc', 'HG'), ('HG_LP_dc', 'HG_LP'),
+    # bandpass definitions (run with and without --causal-stack)
+    ('HG_vw', 'HG'), ('HG_buf', 'HG_vw'), ('HG_iir', 'HG_vw'), ('HG_LP_buf', 'HG_LP_vw'),
+    ('SSR_amp', 'HG_buf'), ('SSR_phase', 'HG_LP_buf'), ('SSR_pac', 'HG_LP_PAC_buf'),
 ]
 
 

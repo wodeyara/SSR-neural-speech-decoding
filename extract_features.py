@@ -242,14 +242,95 @@ def extractSSPE(data, initParams_list, include_phase = True, include_pac = True,
 # Bandpass features
 # ---------------------------------------------------------------------------------------
 
+HG_TIMINGS = ('causal', 'delay_compensated', 'verwoert', 'streaming_iir', 'buffered')
+
+
+def _iir_sos(kind):
+    """IIR filters as in Verwoert et al. (2022): 4th-order Butterworth (scipy.signal.iirfilter defaults)."""
+    if kind == 'hg':
+        return scipy.signal.iirfilter(4, [70/(sr/2), 170/(sr/2)], btype='bandpass', output='sos')
+    if kind == 'lp':
+        return scipy.signal.iirfilter(4, 20/(sr/2), btype='lowpass', output='sos')
+    if kind == 'notch':
+        return np.vstack([scipy.signal.iirfilter(4, [98/(sr/2), 102/(sr/2)], btype='bandstop', output='sos'),
+                          scipy.signal.iirfilter(4, [148/(sr/2), 152/(sr/2)], btype='bandstop', output='sos')])
+    raise ValueError(kind)
+
+
+def _window_stats_full(hg_amplitude, lp_filtered, analytic_lp, starts, stops, want_lp):
+    """Window means of quantities computed on the whole signal."""
+    st = {'hg': _window_mean(hg_amplitude, starts, stops)}
+    if want_lp:
+        lp_unit = np.exp(1j * np.angle(analytic_lp))
+        st['lp_amp'] = _window_mean(np.abs(analytic_lp), starts, stops)
+        st['lp_unit'] = _window_mean(lp_unit, starts, stops)
+        st['lmp'] = _window_mean(lp_filtered, starts, stops)
+        st['pac'] = _window_mean(hg_amplitude * lp_unit, starts, stops)
+    return st
+
+
+def _window_stats_buffered(data, starts, stops, want_lp, buffer_ms=400, chunk=256):
+    """
+    Causal, buffer-wise zero-phase estimation: for every 50 ms window, the preceding buffer of
+    `buffer_ms` that ENDS at the last sample of the window is filtered forward-backward (IIR, as in
+    Verwoert et al.), Hilbert-transformed within the buffer, and the quantities are averaged over the
+    window, i.e. the last 50 ms of the buffer. Only data up to the end of the window is used.
+    """
+    n_buf = int(round(buffer_ms / 1000 * sr))
+    hg_sos = np.vstack([_iir_sos('hg'), _iir_sos('notch')])
+    lp_sos = _iir_sos('lp')
+    n_win, n_ch = len(starts), data.shape[1]
+    st = {'hg': np.zeros((n_win, n_ch))}
+    if want_lp:
+        st.update(lp_amp=np.zeros((n_win, n_ch)), lp_unit=np.zeros((n_win, n_ch), complex),
+                  lmp=np.zeros((n_win, n_ch)), pac=np.zeros((n_win, n_ch), complex))
+
+    def process(idx, segs):
+        # segs: (n, n_buf, n_ch); window = last (stop - start) samples of each segment
+        L = stops[idx[0]] - starts[idx[0]]
+        z_hg = scipy.signal.hilbert(scipy.signal.sosfiltfilt(hg_sos, segs, axis=1), axis=1)[:, -L:, :]
+        a_hg = np.abs(z_hg)
+        st['hg'][idx] = a_hg.mean(axis=1)
+        if want_lp:
+            lp = scipy.signal.sosfiltfilt(lp_sos, segs, axis=1)
+            z_lp = scipy.signal.hilbert(lp, axis=1)[:, -L:, :]
+            unit = np.exp(1j * np.angle(z_lp))
+            st['lp_amp'][idx] = np.abs(z_lp).mean(axis=1)
+            st['lp_unit'][idx] = unit.mean(axis=1)
+            st['lmp'][idx] = lp[:, -L:, :].mean(axis=1)
+            st['pac'][idx] = (a_hg * unit).mean(axis=1)
+
+    full = np.where(stops >= n_buf)[0]
+    early = np.where(stops < n_buf)[0]
+    # first ~0.4 s (inside the discarded 10 s initialisation segment): shorter buffers; windows ending before
+    # 128 samples are too short to filter and copy the first computable window
+    min_len = 128
+    first_ok = None
+    for w in early:
+        if stops[w] >= min_len:
+            process(np.array([w]), data[None, :stops[w], :])
+            first_ok = w if first_ok is None else first_ok
+    if first_ok is None:
+        first_ok = full[0]
+        process(full[:1], np.ascontiguousarray(data[None, stops[first_ok] - n_buf:stops[first_ok], :]))
+    for w in early[stops[early] < min_len]:
+        for k in st:
+            st[k][w] = st[k][first_ok]
+    win = np.lib.stride_tricks.sliding_window_view(data, n_buf, axis=0)   # (T-n_buf+1, n_ch, n_buf)
+    for c in range(0, len(full), chunk):
+        idx = full[c:c + chunk]
+        process(idx, np.ascontiguousarray(win[stops[idx] - n_buf].transpose(0, 2, 1)))
+    return st
+
+
 def extractHG(data, low_pass=False, lp_phase=True, include_pac=False, pac_mode='mvl',
-              include_lmp=False, timing='causal'):
+              include_lmp=False, timing='causal', buffer_ms=400):
     """
     Extract high-gamma band envelope features and optional low-pass amplitude/phase/PAC.
 
     With the default arguments this reproduces the published 'HG bandpass' (low_pass=False)
     and 'HG + LP bandpass' (low_pass=True) features exactly.
-
+    
     Parameters
     ----------
     data : array (samples, channels)
@@ -267,84 +348,95 @@ def extractHG(data, low_pass=False, lp_phase=True, include_pac=False, pac_mode='
     include_lmp : bool, optional
         Add the window mean of the low-pass filtered voltage itself (local motor
         potential). Control for what the low-frequency 'phase' features encode.
-    timing : {'causal', 'delay_compensated'}
-        'causal' (default, published): causal 409-tap FIR, i.e. features lag the signal
-        by 199 ms. 'delay_compensated': the same FIR applied centred (zero phase), which
-        removes the 199 ms delay and makes the features time-aligned with SSR features.
-        NB: in both cases the notch filters (sosfiltfilt) and the Hilbert transform are
-        applied to the whole recording, i.e. they are not causal.
-
+    timing : str
+        How the band-limited signals and their analytic signal are obtained:
+        'causal' (default, published in the draft): 409-tap Hamming FIR applied causally, so features lag
+            the signal by 199 ms; notch filters and Hilbert transform on the whole recording (not causal).
+        'delay_compensated': the same FIR applied centred (zero phase), i.e. no delay, not causal.
+        'verwoert': exactly the original Verwoert et al. (2022) code: 4th-order Butterworth IIR applied
+            forward-backward (sosfiltfilt) to the whole recording, Hilbert transform of the whole recording.
+            Zero delay, offline, not causal. (Low-pass: 4th-order Butterworth at 20 Hz, same procedure.)
+        'streaming_iir': as in the real-time system of Angrick et al. (2021): the same IIR filters applied
+            causally with continuous filter state (sosfilt), and the log power of each 50 ms window as the
+            feature (no Hilbert transform). Causal, delay of a few ms. HG only (low_pass must be False).
+        'buffered': causal buffer-wise estimation: for each window, the preceding `buffer_ms` of data ending
+            at the last sample of the window is filtered forward-backward with the 'verwoert' IIR filters,
+            Hilbert-transformed within the buffer, and averaged over the last 50 ms. Causal, no nominal
+            delay, but the estimate sits at the edge of the buffer.
+    buffer_ms : float
+        Buffer length for timing='buffered'.
+        
     Returns
     -------
     feat : array (windows, channels) when low_pass=False, otherwise (windows, channels*k)
         with per-channel column order [lp_amp, (lp_sin, lp_cos), (lmp), (pac...), hg_amp].
         The default low_pass=True layout is [lp_amp, lp_sin, lp_cos, hg_amp] (k=4).
     """
+    if timing not in HG_TIMINGS:
+        raise ValueError(f"unknown timing {timing}; choose from {HG_TIMINGS}")
     # Linear detrend
     data = scipy.signal.detrend(data, axis=0)
     n_channels = data.shape[1]
     starts, stops = _window_bounds(data.shape[0])
 
-    # FIR Filter setup (400 ms memory window)
-    n_taps = _fir_taps()
+    if timing == 'streaming_iir':
+        if low_pass:
+            raise NotImplementedError("timing='streaming_iir' provides high-gamma log power only")
+        x = scipy.signal.sosfilt(np.vstack([_iir_sos('hg'), _iir_sos('notch')]), data, axis=0)
+        return np.log(_window_mean(x ** 2, starts, stops) + np.finfo(float).tiny)
 
-    # HIGH-GAMMA BANDPASS (70 - 170 Hz)
-    hg_filter = scipy.signal.firwin(
-        n_taps,
-        [70 / (sr / 2), 170 / (sr / 2)],
-        pass_zero=False,
-        window='hamming'
-    )
-    data_hg_filtered = _apply_fir(hg_filter, data, timing)
+    if timing == 'buffered':
+        st = _window_stats_buffered(data, starts, stops, low_pass, buffer_ms)
+    else:
+        if timing == 'verwoert':
+            data_hg_filtered = scipy.signal.sosfiltfilt(_iir_sos('hg'), data, axis=0)
+        else:
+            # FIR Filter setup (400 ms memory window)
+            n_taps = _fir_taps()
+            # HIGH-GAMMA BANDPASS (70 - 170 Hz)
+            hg_filter = scipy.signal.firwin(n_taps, [70 / (sr / 2), 170 / (sr / 2)], pass_zero=False, window='hamming')
+            data_hg_filtered = _apply_fir(hg_filter, data, timing)
 
-    # Notch filters for line noise harmonics (98-102 Hz, 148-152 Hz)
+        # Notch filters for line noise harmonics (98-102 Hz, 148-152 Hz)
+        # first harmonic of line noise
+        sos = scipy.signal.iirfilter(4, [98/(sr/2),102/(sr/2)],btype='bandstop',output='sos')
+        data_hg_filtered = scipy.signal.sosfiltfilt(sos,data_hg_filtered,axis=0)
+        # second harmonic of line noise
+        sos = scipy.signal.iirfilter(4, [148/(sr/2),152/(sr/2)],btype='bandstop',output='sos')
+        data_hg_filtered = scipy.signal.sosfiltfilt(sos,data_hg_filtered,axis=0)
 
-    # first harmonic of line noise
-    sos = scipy.signal.iirfilter(4, [98/(sr/2),102/(sr/2)],btype='bandstop',output='sos')
-    data_hg_filtered = scipy.signal.sosfiltfilt(sos,data_hg_filtered,axis=0)
+        # Hilbert transform for envelope
+        hg_amplitude = np.abs(scipy.signal.hilbert(data_hg_filtered, axis=0))
+        del data_hg_filtered
 
-    # second harmonic of line noise
-    sos = scipy.signal.iirfilter(4, [148/(sr/2),152/(sr/2)],btype='bandstop',output='sos')
-    data_hg_filtered = scipy.signal.sosfiltfilt(sos,data_hg_filtered,axis=0)
-
-    # Hilbert transform for envelope
-    hg_amplitude = np.abs(scipy.signal.hilbert(data_hg_filtered, axis=0))
-    del data_hg_filtered
-    hg_w = _window_mean(hg_amplitude, starts, stops)
+        data_lp_filtered = analytic_lp = None
+        if low_pass:
+            # LOW-PASS BAND (< 20 Hz)
+            if timing == 'verwoert':
+                data_lp_filtered = scipy.signal.sosfiltfilt(_iir_sos('lp'), data, axis=0)
+            else:
+                lp_filter = scipy.signal.firwin(_fir_taps(), 20 / (sr / 2), pass_zero='lowpass', window='hamming')
+                data_lp_filtered = _apply_fir(lp_filter, data, timing)
+            analytic_lp = scipy.signal.hilbert(data_lp_filtered, axis=0)
+        st = _window_stats_full(hg_amplitude, data_lp_filtered, analytic_lp, starts, stops, low_pass)
 
     if not low_pass:
-        return hg_w
+        return st['hg']
 
-    # LOW-PASS BAND (< 20 Hz)
-    lp_filter = scipy.signal.firwin(
-        n_taps,
-        20 / (sr / 2),
-        pass_zero='lowpass',
-        window='hamming'
-    )
-    data_lp_filtered = _apply_fir(lp_filter, data, timing)
-
-    analytic_lp = scipy.signal.hilbert(data_lp_filtered, axis=0)
-    lp_amplitude = np.abs(analytic_lp)
-    lp_unit = np.exp(1j * np.angle(analytic_lp))
-    del analytic_lp
-
-    # FEATURE EXTRACTION WINDOWING
-    blocks = [_window_mean(lp_amplitude, starts, stops)]          # lp_amp
+    # FEATURE ASSEMBLY
+    blocks = [st['lp_amp']]                                          # lp_amp
     if lp_phase:
-        cm = _window_mean(lp_unit, starts, stops)
-        blocks += [np.imag(cm), np.real(cm)]                         # lp_sin, lp_cos
+        blocks += [np.imag(st['lp_unit']), np.real(st['lp_unit'])]   # lp_sin, lp_cos
     if include_lmp:
-        blocks.append(_window_mean(data_lp_filtered, starts, stops))  # lmp
+        blocks.append(st['lmp'])                                     # lmp
     if include_pac:
-        pz = _window_mean(hg_amplitude * lp_unit, starts, stops)
         if pac_mode == 'mvl':
-            blocks.append(np.abs(pz))
+            blocks.append(np.abs(st['pac']))
         elif pac_mode == 'complex':
-            blocks += [np.real(pz), np.imag(pz)]
+            blocks += [np.real(st['pac']), np.imag(st['pac'])]
         else:
             raise ValueError(f"unknown pac_mode {pac_mode}")
-    blocks.append(hg_w)                                              # hg_amp
+    blocks.append(st['hg'])                                          # hg_amp
     # interleave per channel: [ch0 features..., ch1 features..., ...]
     feat = np.stack(blocks, axis=2).reshape(len(starts), n_channels * len(blocks))
     return feat
