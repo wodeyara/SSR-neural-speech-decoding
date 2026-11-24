@@ -5,13 +5,16 @@ For one or more participants this script characterises the SSR oscillators as th
 complex (quadrature) LTI filters they become once the Kalman gain has converged
 (see ssr_filter.py), and compares them with the FIR filters of the bandpass baseline:
 
-  A. magnitude responses of the SSR oscillators of an example channel, with the
-     70-170 Hz high-gamma FIR and <20 Hz low-pass FIR of extractHG overlaid;
+  A. magnitude responses of the SSR oscillators of an example channel, with the 70-170 Hz
+     4th-order Butterworth band-pass (Verwoert et al. 2022; zero-phase |H|^2 and causal |H|)
+     and the <20 Hz low-pass overlaid;
   B. -3 dB bandwidth and group delay of every SSR oscillator versus its centre frequency,
-     compared with the 199 ms group delay of the 409-tap FIR filters;
+     compared with the group delay of the causal Butterworth band-pass (streaming IIR) and of
+     the 409-tap FIR of the original draft (199 ms);
   C. lagged correlation between the SSR high-gamma amplitude features and the bandpass
-     high-gamma envelope (causal FIR and delay-compensated FIR): the lag at the peak shows
-     the relative delay of the two feature sets;
+     high-gamma envelope for the offline Verwoert pipeline (zero-phase, non-causal), the buffered
+     causal pipeline and the causal FIR of the draft: the lag at the peak shows the relative
+     delay of the feature sets;
   D. cost of a streaming (sample-by-sample) steady-state SSR update for the full montage.
 
 Outputs (in --out): filter_summary_{pt}.csv, lag_xcorr_{pt}.npz, ssr_vs_bandpass_filters_{pt}.png/.pdf,
@@ -50,13 +53,16 @@ def filter_table(params_list):
     return rows
 
 
-def fir_response(f_axis):
-    n_taps = ef._fir_taps()
-    hg = scipy.signal.firwin(n_taps, [70 / (FS / 2), 170 / (FS / 2)], pass_zero=False, window='hamming')
-    lp = scipy.signal.firwin(n_taps, 20 / (FS / 2), pass_zero='lowpass', window='hamming')
-    _, Hhg = scipy.signal.freqz(hg, worN=f_axis, fs=FS)
-    _, Hlp = scipy.signal.freqz(lp, worN=f_axis, fs=FS)
-    return np.abs(Hhg), np.abs(Hlp), sf.fir_bandpass_group_delay_ms(n_taps, FS)
+def iir_response(f_axis):
+    """4th-order Butterworth filters of the Verwoert pipeline: complex causal response and group delay (ms)."""
+    out = {}
+    for kind in ('hg', 'lp'):
+        _, H = scipy.signal.sosfreqz(ef._iir_sos(kind), worN=f_axis, fs=FS)
+        out[kind] = H
+    gd = sf.group_delay(out['hg'], f_axis, FS)
+    band = (f_axis >= 70) & (f_axis <= 170)
+    return out, dict(hg_gd_median_ms=float(np.median(gd[band])), hg_gd_min_ms=float(gd[band].min()),
+                     hg_gd_max_ms=float(gd[band].max()), hg_gd_120_ms=float(np.interp(120, f_axis, gd)))
 
 
 def lagged_corr(a, b, max_lag):
@@ -72,11 +78,14 @@ def lagged_corr(a, b, max_lag):
     return out
 
 
+LAG_TIMINGS = ('verwoert', 'buffered', 'causal')
+
+
 def hg_lag_analysis(pt, params_list, eeg, max_lag_ms=400):
     """Lagged correlation between SSR HG-oscillator amplitudes and HG bandpass envelopes."""
     drop = int(10 / ef.frameshift)          # the 10 s initialisation segment, as in decoding
     ssr = ef.extractSSPE(eeg, params_list, include_phase=False, include_pac=False, engine='steady_state')
-    hg = {t: ef.extractHG(eeg, timing=t) for t in ('causal', 'delay_compensated')}
+    hg = {t: ef.extractHG(eeg, timing=t) for t in LAG_TIMINGS}
     max_lag = int(max_lag_ms / (ef.frameshift * 1000))
     curves = {t: [] for t in hg}
     col = 0
@@ -145,12 +154,12 @@ def plot(pt, rows, params_list, lags_ms, curves, out):
                                                       len(params_list[c]['freqs'])))
     f_axis = np.arange(0.1, 200, 0.1)
     H = sf.frequency_response(params_list[ex], f_axis)
-    Hhg, Hlp, _ = fir_response(f_axis)
+    Hiir, _ = iir_response(f_axis)
     ax = axes[0]
     for j, f in enumerate(params_list[ex]['freqs']):
         m = np.abs(H[j]); ax.plot(f_axis, m / m.max(), lw=1.5, label=f'SSR osc. {f:.0f} Hz')
-    ax.plot(f_axis, Hhg, 'k--', lw=1.2, label='HG FIR 70-170 Hz')
-    ax.plot(f_axis, Hlp, 'k:', lw=1.2, label='LP FIR <20 Hz')
+    ax.plot(f_axis, np.abs(Hiir['hg']) ** 2, 'k--', lw=1.2, label='Butterworth 70-170 Hz (zero-phase)')
+    ax.plot(f_axis, np.abs(Hiir['lp']) ** 2, 'k:', lw=1.2, label='Butterworth <20 Hz (zero-phase)')
     ax.set_xlabel('Frequency (Hz)'); ax.set_ylabel('Normalised |H(f)|'); ax.set_title(f'A  {pt}, channel {ex}')
     ax.legend(fontsize=7, loc='upper right'); ax.set_xlim(0, 200)
     # B: group delay vs centre frequency
@@ -158,13 +167,16 @@ def plot(pt, rows, params_list, lags_ms, curves, out):
     fr = np.array([r['freq'] for r in rows]); gd = np.array([r['group_delay_ms'] for r in rows])
     bw = np.array([r['bandwidth'] for r in rows])
     sc = ax.scatter(fr, gd, c=bw, s=8, cmap='viridis')
-    ax.axhline(sf.fir_bandpass_group_delay_ms(ef._fir_taps(), FS), color='k', ls='--', lw=1.2, label='409-tap FIR (HG & LP)')
+    _, gd_iir = iir_response(np.arange(0.1, 200, 0.1))
+    ax.axhline(sf.fir_bandpass_group_delay_ms(ef._fir_taps(), FS), color='k', ls=':', lw=1.2, label='409-tap FIR of the draft')
+    ax.axhline(gd_iir['hg_gd_120_ms'], color='k', ls='--', lw=1.2, label='causal Butterworth 70-170 Hz (at 120 Hz)')
     ax.set_xlabel('SSR oscillator frequency (Hz)'); ax.set_ylabel('Group delay at peak (ms)')
     ax.set_yscale('log'); ax.set_title('B  all channels'); ax.legend(fontsize=8)
     plt.colorbar(sc, ax=ax, label='-3 dB bandwidth (Hz)')
     # C: lagged correlation
     ax = axes[2]
-    for t, lab, ls in (('causal', 'causal FIR (published)', '-'), ('delay_compensated', 'delay-compensated FIR', '--')):
+    for t, lab, ls in (('verwoert', 'Verwoert (offline, zero-phase)', '-'), ('buffered', 'buffered causal', '--'),
+                       ('causal', 'causal FIR (draft)', ':')):
         c = curves[t]; m = c.mean(0)
         ax.plot(lags_ms, m, ls, label=f'{lab}: peak {lags_ms[np.argmax(m)]:+.0f} ms')
         ax.fill_between(lags_ms, m - c.std(0) / np.sqrt(len(c)), m + c.std(0) / np.sqrt(len(c)), alpha=0.2)
@@ -196,6 +208,10 @@ def main():
                 print(f'{pt} {name:15s} n={m.sum():4d}  bandwidth median {np.median(bw[m]):6.1f} Hz '
                       f'[IQR {np.percentile(bw[m], 25):.1f}-{np.percentile(bw[m], 75):.1f}]  group delay median '
                       f'{np.median(gd[m]):6.1f} ms [IQR {np.percentile(gd[m], 25):.1f}-{np.percentile(gd[m], 75):.1f}], max {gd[m].max():.1f}')
+        _, gd_iir = iir_response(np.arange(0.1, 200, 0.1))
+        print(f"{pt} causal 4th-order Butterworth 70-170 Hz: group delay {gd_iir['hg_gd_min_ms']:.1f}-{gd_iir['hg_gd_max_ms']:.1f} ms "
+              f"in the pass band (median {gd_iir['hg_gd_median_ms']:.1f}, at 120 Hz {gd_iir['hg_gd_120_ms']:.1f}); "
+              f"409-tap FIR {sf.fir_bandpass_group_delay_ms(ef._fir_taps(), FS):.1f} ms")
         eeg = ef.load_participant(pt)[0]
         bench = streaming_benchmark(params_list, eeg)
         print(f"{pt} streaming steady-state SSR update, all {len(params_list)} channels ({bench['n_modes']} complex modes): "
