@@ -1,5 +1,8 @@
 % Journal submission-ready LaTeX source generated from the thesis report.
-% Upload the original figure files using the same paths/names used below, e.g. images/pipelineAngerick.png.
+% Build:  latexmk -pdf main.tex   (BibTeX database: references.bib)
+% Red [TODO: ...] markers flag numbers or analyses that still have to be (re)generated with the
+% code in the repository (run_comparisons.py, compare_filters.py, stats_contrasts.py);
+% see REVIEW_NOTES.md for the full list. Set \showtodosfalse to hide them.
 
 \documentclass{iopjournal}
 
@@ -16,7 +19,17 @@
 \usepackage{subcaption}
 \usepackage{verbatim}
 \usepackage{type1cm}
+\usepackage{multirow}
 \graphicspath{{./}{./images/}}
+
+% --- editing helpers -------------------------------------------------------------------------
+\newif\ifshowtodos\showtodostrue
+\newcommand{\todo}[1]{\ifshowtodos{\color{red}[TODO: #1]}\fi}
+% Include a figure if the file exists, otherwise draw a labelled placeholder box
+% (the per-participant spectrogram figures are large and are not all in the repository).
+\newcommand{\figorplaceholder}[2][width=\textwidth]{%
+  \IfFileExists{#2}{\includegraphics[#1]{#2}}{%
+    \fbox{\parbox[c][0.25\textheight][c]{0.9\linewidth}{\centering\small Figure not in repository:\\\texttt{\detokenize{#2}}}}}}
 
 \begin{document}
 
@@ -25,35 +38,37 @@
 \title{Subject-Specific State-Space Model Derived Oscillatory Features for Neural Speech Decoding}
 
 % TODO: Confirm author order, affiliations, correspondence address, and ORCID identifiers before submission.
-\author{L.H. Ponsteen$^1$,C. Herff$^1$ and A. Wodeyar$^{1,*}$}
+% NOTE: R. Cavill is listed in the contributor roles below but not in the author list.
+\author{L.H. Ponsteen$^1$, C. Herff$^1$ and A. Wodeyar$^{1,*}$}
 
 %\affil{$^1$Department, Institution, City, Country}
 \affil{$^1$Department of Advanced Computer Sciences, Maastricht University, Maastricht, The Netherlands}
 \affil{$^*$Author to whom any correspondence should be addressed.}
 \email{author@institution.org}
 
-\keywords{speech decoding, intracranial EEG, state-space modelling, high gamma, phase-amplitude coupling, brain-computer interface}
+\keywords{speech decoding, intracranial EEG, state-space modelling, Kalman filter, high gamma, phase, phase-amplitude coupling, brain-computer interface}
 
 \begin{abstract}
-Neural speech decoding pipelines commonly rely on fixed high-gamma bandpass filters followed by envelope extraction, an approach that is effective but may overlook subject-specific oscillatory structure and low-frequency information. We evaluated a state-space model of model of rhythms (SSR) framework for extracting adaptive oscillatory features from intracranial EEG during overt word reading. The analysis used a public dataset from ten participants with stereotactic EEG recordings, audio recordings, and stimulus timing annotations. SSR parameters were initialized from the first 10 seconds of each recording and then used to extract oscillator amplitude, low-frequency phase, and phase-amplitude coupling features in 50 ms windows. 
-
-Using a a Partial Least Squares decoder, adding low-frequency features to the conventional high-gamma baseline improved mean spectrogram reconstruction correlation ($r = 0.761$ versus $r = 0.728$). The model using all SSR derived features using all SSR derived features achieved the highest mean correlation ($r = 0.766$), but did not differ significantly from the model using bandpass derived features using bandpass derived features. Adding low-frequency phase features improved performance relative to SSR amplitude alone ($p_{\mathrm{corrected}}=0.01$), whereas the additional group-level contribution of phase-amplitude coupling was small and did not survive correction ($p_{\mathrm{corrected}}=0.08$). 
-
-These results suggest that subject-specific state-space features can capture speech-relevant information and achieve reconstruction performance comparable to a conventional bandpass model. Moreover, low-frequency information improved speech reconstruction beyond a high-gamma amplitude baseline in both the bandpass and SSR frameworks. We conclude that SSR can extract real-time oscillatory features that are competitive with bandpass filtered outputs while offering considerably greater temporal flexibility in features that can be extracted.
- \end{abstract}
+\textit{Objective.} Neural speech decoders usually derive their features from fixed high-gamma bandpass filters followed by envelope extraction. These filters apply the same band to every participant and electrode, trade frequency selectivity against latency, and cannot provide the instantaneous phase of slow rhythms without long analysis windows. State-space models of rhythms (SSR) instead track subject-specific oscillators sample by sample with a Kalman filter. We asked whether SSR features can take the place of bandpass features in an established speech-reconstruction pipeline.
+\textit{Approach.} We used a public stereotactic EEG dataset in which ten participants read words aloud. SSR parameters were estimated from the first 10\,s of each recording and then held fixed; oscillator amplitude, low-frequency phase and phase-amplitude coupling (PAC) features were mapped to mel spectrograms with partial least squares, and compared with high-gamma and low-frequency bandpass features under the same decoder and cross-validation.
+\textit{Main results.} Amplitude-only SSR matched the high-gamma bandpass baseline ($r=0.719$ versus $r=0.728$). Adding low-frequency phase improved SSR performance significantly ($p_{\mathrm{FDR}}=0.009$) to $r=0.763$, on a par with a bandpass model that added low-frequency amplitude and phase ($r=0.761$). The full SSR model had the highest mean correlation ($r=0.765$), but PAC added little ($\Delta r=0.003$, $p_{\mathrm{FDR}}=0.14$). Viewed as a filter bank, each SSR oscillator is a causal, narrow-band quadrature filter whose delay is an order of magnitude shorter than that of the 199\,ms finite impulse response filters used for the bandpass features, and decoding remained stable over the recording with parameters estimated once.
+\textit{Significance.} SSR matches conventional features in accuracy while adding low-latency, subject-specific amplitude and phase estimates, which makes it a promising front end for real-time speech neuroprostheses.
+\end{abstract}
 
 \section{Introduction}
 
-Neural speech decoding aims to reconstruct speech-related outputs from neural signals. For individuals with intact cognition but impaired speech motor output, such as people with amyotrophic lateral sclerosis or locked-in syndrome after brainstem stroke, brain-computer interfaces offer a potential route to restore communication by decoding neural activity into text or synthesized speech. Speech production involves rapidly coordinated activity across the lateral cortical network, including superior temporal, prefrontal, and motor regions, and speech-related information has been shown to be measurable from intracranial EEG recordings obtained from clinically implanted electrodes~\cite{Chang2010,Silva2024}.
+Speech neuroprostheses aim to restore communication to people who have lost the ability to speak, for example through amyotrophic lateral sclerosis or brainstem stroke, by decoding neural activity into text or synthesized speech~\cite{Silva2024}. Recent systems decode attempted speech from intracortical or electrocorticographic recordings at conversational rates~\cite{Moses2021,Metzger2023,Willett2023,Card2024} and can now synthesize audible speech in a streaming fashion~\cite{Littlejohn2025,Wairagkar2025}. Stereotactic EEG (sEEG), which samples deep and distributed sites through minimally invasive depth electrodes, is a promising alternative recording modality for such interfaces~\cite{Herff2020}, and speech has been reconstructed and synthesized in real time from sEEG recordings~\cite{Angrick2021,dataset}.
 
-Many speech reconstruction frameworks follow a common architecture: neural signals over a window are transformed into features, a decoder maps those features onto an acoustic representation such as a spectrogram, and a synthesizer can then convert that representation into audio (figure~\ref{fig:workflow_ssr}). In the pipeline introduced by Verwoert et al.~\cite{dataset}, intracranial EEG is processed with high-gamma filtering and envelope extraction before a linear decoder reconstructs a speech spectrogram. High-gamma activity (80 - 150 Hz) is a standard feature in this setting because high-gamma bursts are strongly associated with local population activity in speech-related cortical regions~\cite{Kearney2019}. More recent speech neuroprosthesis systems often use substantially richer feature sets, but fixed spectral preprocessing, particularly high-gamma-focused preprocessing, remains a core component of many pipelines~\cite{Littlejohn2025,Wairagkar2024}.
+Most speech-reconstruction pipelines share a common architecture: neural signals are transformed into features over short windows, a decoder maps those features onto an acoustic representation such as a mel spectrogram, and a vocoder synthesizes audio from that representation (figure~\ref{fig:workflow_ssr})~\cite{Herff2019,Angrick2019,Anumanchipalli2019}. Feature extraction is dominated by the high-gamma band (roughly 70--170\,Hz), whose amplitude tracks local population activity~\cite{Crone2006,Ray2011} and follows the rapid progression of activity across temporal, frontal and sensorimotor cortex during speech production~\cite{Flinker2015,Bouchard2013}. In the pipeline introduced by Verwoert et al.~\cite{dataset}, for example, the signal is bandpass filtered in the high-gamma range, its envelope is computed with the Hilbert transform and a linear decoder reconstructs the spectrogram. Even state-of-the-art systems with deep-learning decoders still rely on fixed bandpass preprocessing to compute high-gamma or spike-band power~\cite{Metzger2023,Littlejohn2025,Wairagkar2025}.
 
-Fixed bandpass features are useful but restrictive. They impose the same spectral definition across subjects and electrode locations, can pool relevant and irrelevant activity within a broad range, and typically represent the signal through amplitude envelopes alone. Low-frequency phase is also neurophysiologically relevant but frequently unused: cortical rhythms in the theta and related ranges can track speech timing, and phase-amplitude coupling (PAC) has been proposed as a mechanism by which low-frequency phase modulates high-gamma activity~\cite{Hyafil2015,Canolty2006,Canolty2010}. These observations motivate real-time feature extraction methods that preserve high-gamma amplitude while also providing explicit estimates of subject-specific low-frequency phase and cross-frequency interactions - something that bandpass filters cannot provide due to latencies induced by windowing~\cite{Smetanin2020}<need ref>.
+Fixed bandpass features are effective but come with three restrictions. First, the same band is applied to every participant and electrode, although the frequencies at which speech-related activity is expressed differ between people and recording sites. Second, a filter has to trade frequency selectivity against latency: a causal filter with a narrow passband or steep transition needs a long impulse response and therefore delays its output, and the Hilbert transform that is usually applied afterwards requires future samples~\cite{Smetanin2020}. Third, the features capture only the amplitude envelope. Low-frequency activity also carries speech information: slow cortical rhythms track the syllabic structure of speech and their phase organizes high-gamma activity through phase-amplitude coupling (PAC)~\cite{Canolty2006,Canolty2010,Giraud2012,Hyafil2015}, and low-frequency and cross-frequency features have been used to decode imagined speech from intracranial EEG~\cite{Proix2022}. The phase of slow rhythms, however, is exactly what windowed filters struggle to estimate in real time: an accurate phase estimate at the current sample needs either a long, delayed filter or forecasting of the future signal~\cite{Zrenner2020,McIntosh2020,Wodeyar2021}.
 
-State-space oscillatory models provide one such approach. In the state-space rhythms (SSR) framework, each oscillatory component is represented as a latent state whose dynamics are recursively updated from the observed signal using a Kalman filter~\cite{Wodeyar2021,Matsuda2017}. The method estimates amplitude and phase at each time point without requiring future observations, making it compatible with streaming applications in principle (figure~\ref{fig:workflow_ssr}). Here, we integrated SSR-derived features into the Verwoert et al. speech reconstruction framework and compared them with a conventional high-gamma bandpass amplitude baseline. We aimed to test whether adaptive state-space oscillatory features enable better decoding in a controlled linear-decoding setting.
+State-space models of rhythms offer a way around these restrictions. In the state-space rhythms (SSR) framework, the recorded signal is modelled as the sum of a small number of damped stochastic oscillators plus noise, and the analytic state of every oscillator is estimated recursively with a Kalman filter~\cite{Matsuda2017,Beck2018,Wodeyar2021}. The number of oscillators and their frequencies can be identified from a short segment of data for each channel~\cite{Beck2022SOMATA}, so the representation adapts to the participant and electrode. Because the filter uses only past and current samples, amplitude and phase are available at every sample with a short, model-determined delay, and both phase and cross-frequency coupling follow directly from the oscillator states~\cite{Wodeyar2021,Soulat2022}. Once its parameters are fixed, the SSR filter is moreover a linear, time-invariant filter bank, so its features can be compared like-for-like with bandpass features in terms of passbands and delays.
 
-<a short summary of what we did and what we found>
-We first identified a method to do data-driven extraction of gamma band activity across all channels in all subjects. The amplitude envelopes causally derived under this approach showed strong correlations to envelopes derived from acausal bandpass filtering. Next we compared models using nested feature sets and showed that while adding low frequency (< 20Hz)  phase improved speech reconstruction, adding low frequency bandpass filtered power was sufficient to offer comparable improvement in decoding. Finally, we examined if adding phase-amplitude coupling further improved decoding but found that this only trended towards significance. This shows that SSR can extract real-time oscillatory features that are competitive with bandpass filtered outputs while offering considerably greater flexibility in features that can be extracted.
+Here we integrated SSR-derived features into the speech-reconstruction framework of Verwoert et al.~\cite{dataset} and compared them with bandpass features using the same linear decoder and cross-validation scheme. This framework was chosen because its simple decoder allows differences in performance to be attributed to the features rather than to the decoder. It is also a demanding test for SSR: the window length, temporal context and decoder were all designed around bandpass envelopes. Comparable performance under these conditions is therefore the relevant first benchmark. If SSR features reconstruct speech as well as bandpass features, then their additional properties---sample-by-sample estimates with low delay, participant- and channel-specific frequencies, and real-time access to phase and cross-frequency interactions---come at no cost in accuracy.
+
+We first identified oscillatory components, including at least one high-gamma oscillator, in every channel of every participant, and characterized the resulting SSR filters: each oscillator acts as a narrow-band quadrature filter whose delay is far shorter than that of the bandpass filters, and whose amplitude tracks the conventional high-gamma envelope once the bandpass delay is accounted for. We then compared nested feature sets. SSR amplitude features alone performed on par with the high-gamma bandpass baseline, and adding low-frequency SSR phase gave a significant improvement that matched a bandpass model supplemented with low-frequency amplitude and phase. Adding PAC features gave the highest mean performance but only a small, non-significant further gain. Decoding performance was stable over the recording with oscillator parameters estimated from the first 10\,s. Together these results show that SSR can provide real-time oscillatory features that are as informative as bandpass features while offering considerably greater flexibility in the features that can be extracted.
+
 \begin{figure}[!htb]
     \centering
     \begin{subfigure}[b]{0.47\textwidth}
@@ -75,15 +90,15 @@ We first identified a method to do data-driven extraction of gamma band activity
 
 \subsection{Dataset and task}
 
-We used the public intracranial EEG speech production dataset from Verwoert et al.~\cite{dataset}, which includes iEEG recordings, audio recordings, stimulus words, and timing offsets. The data were collected from ten epilepsy participants implanted with stereotactic EEG electrodes (sEEG) for clinical monitoring. Electrode placement was determined by clinical need rather than by the present speech-decoding study; participant-level electrode coverage is summarized in appendix~\ref{app:electrode_locations}. Each participant viewed a word for two seconds, read it aloud, and then paused for one second. This yielded 100 trials and approximately 300 seconds of recording per participant. Participant approval for data collection and sharing is documented alongside the original dataset.
+We used the public intracranial EEG speech production dataset from Verwoert et al.~\cite{dataset}, which includes iEEG recordings, audio recordings, stimulus words, and timing offsets. The data were collected from ten epilepsy participants implanted with stereotactic EEG electrodes for clinical monitoring. Electrode placement was determined by clinical need rather than by the present speech-decoding study; participants had between 54 and 127 recording contacts (1103 in total), and participant-level electrode coverage is summarized in appendix~\ref{app:electrode_locations}. Neural data were sampled at 1024\,Hz and audio at 48\,kHz. Each participant viewed a word for two seconds, read it aloud, and then paused for one second. This yielded 100 trials and approximately 300 seconds of recording per participant. Participant approval for data collection and sharing is documented alongside the original dataset.
 
 \subsection{State-space rhythms model}
 
 For each channel, the SSR model represents the observed iEEG signal as a noisy linear combination of latent oscillatory states. For one oscillator $j$, the two-dimensional latent state $x_t^j=[x_{t,1}^j,x_{t,2}^j]^T \in \mathbb{R}^2$ evolves according to
 \begin{equation}
-    x_t^j = a_j O(\omega_j)x_{t-1}^j + u_t^j, \quad u_t^j \sim \mathcal{N}(0,Q_j),
+    x_t^j = a_j O(\omega_j)x_{t-1}^j + u_t^j, \quad u_t^j \sim \mathcal{N}(0,\sigma_j^2 I_2),
 \end{equation}
-where $a_j \in (0,1)$ is a damping coefficient, $u_t^j$ is Gaussian process noise, and $O(\omega_j)$ is the rotation matrix for central angular frequency $\omega_j=2\pi f_j/F_s$:
+where $a_j \in (0,1)$ is a damping coefficient, $u_t^j$ is Gaussian process noise with variance $\sigma_j^2$, and $O(\omega_j)$ is the rotation matrix for central angular frequency $\omega_j=2\pi f_j/F_s$:
 \begin{equation}
     O(\omega_j)=
     \begin{pmatrix}
@@ -95,16 +110,29 @@ The observation equation maps the full hidden state vector $X_t=[(x_t^1)^T,\ldot
 \begin{equation}
     y_t = M X_t + v_t, \quad v_t \sim \mathcal{N}(0,\sigma_R^2),
 \end{equation}
-where $M=[1,0,1,0,\ldots,1,0]$ sums the real component of each oscillator and $v_t$ denotes measurement noise~\cite{Wodeyar2021}. After oscillator frequencies and state parameters are initialized, a Kalman filter estimates the latent analytic state at each time point from current and past observations.
+where $M=[1,0,1,0,\ldots,1,0]$ sums the real component of each oscillator and $v_t$ denotes measurement noise~\cite{Matsuda2017,Wodeyar2021}. With the state-transition matrix $\Phi=\mathrm{blockdiag}(a_jO(\omega_j))$ and process-noise covariance $Q=\mathrm{blockdiag}(\sigma_j^2I_2)$, a Kalman filter~\cite{Kalman1960} estimates the latent analytic state at each time point from current and past observations only. Oscillator frequencies, damping coefficients and process-noise variances were initialized per channel (section~\ref{sec:parameters}) and kept fixed during feature extraction; the observation-noise variance was fixed at $\sigma_R^2=1\,\mu\mathrm{V}^2$, which is of the same order as the values estimated during initialization ($\approx0.3\,\mu\mathrm{V}^2$ for an example channel) and small compared with the signal variance (of the order of $10^4\,\mu\mathrm{V}^2$). The filter was started two seconds into the recording; this segment lies within the 10\,s initialization period that was excluded from decoding.
+
+\subsection{SSR oscillators as causal quadrature filters}
+\label{sec:ssr_filters}
+
+Because the parameters are fixed, the Kalman gain converges within about one second to a steady-state value $K$ that follows from the discrete algebraic Riccati equation~\cite{Anderson1979}. From then on, the state update
+\begin{equation}
+    X_t = A X_{t-1} + K y_t, \qquad A=(I-KM)\Phi,
+\end{equation}
+is a causal, linear, time-invariant filter, and the complex state $z_t^j=x_{t,1}^j+i\,x_{t,2}^j$ of oscillator $j$ is the output of a complex-valued (quadrature) filter applied to the channel signal, with frequency response
+\begin{equation}
+    H_j(e^{i\omega}) = c_j^{T}\left(I - A e^{-i\omega}\right)^{-1}K,
+\end{equation}
+where $c_j$ selects $x_{t,1}^j+i\,x_{t,2}^j$ from $X_t$. The amplitude and phase features of an SSR oscillator are therefore the envelope and phase of the signal passed through a narrow-band, causal filter that is centred on the oscillator frequency and whose bandwidth depends jointly on the parameters of all oscillators of the channel. We used this representation to compute, for every oscillator, the $-3$\,dB passband and the group delay $\tau_j=-\mathrm{d}\arg H_j/\mathrm{d}\omega$ at the peak of the response, and compared them with the filters used for the bandpass features (section~\ref{sec:bandpass}). We verified that the steady-state filter reproduces the time-varying Kalman filter used for feature extraction (maximum relative difference in oscillator amplitude $<10^{-8}$ after the first second). It is also considerably cheaper to run, because the update reduces to a set of first-order complex recursions.
 
 \subsection{SSR feature extraction}
 
-From the latent state of oscillator $j$, instantaneous amplitude and phase were computed as
+Before SSR filtering, each channel was linearly detrended and line noise was attenuated with zero-phase fourth-order band-stop filters at 50, 150, 250 and 350\,Hz. From the latent state of oscillator $j$, instantaneous amplitude and phase were computed as
 \begin{align}
-    A_{j,t} &= \sqrt{(X_{t,1}^j)^2+(X_{t,2}^j)^2}, \\
-    \Phi_{j,t} &= \operatorname{atan2}(X_{t,2}^j,X_{t,1}^j).
+    A_{j,t} &= \sqrt{(x_{t,1}^j)^2+(x_{t,2}^j)^2}, \\
+    \Phi_{j,t} &= \operatorname{atan2}(x_{t,2}^j,x_{t,1}^j).
 \end{align}
-Features were summarized in overlapping 50 ms windows with a 10 ms step. Note that this was done to enable comparison to the bandpass filter approach, there exists no Three SSR feature sets were evaluated: amplitude only, amplitude plus low-frequency phase, and amplitude plus low-frequency phase plus PAC. Phase and PAC features were extracted only from oscillators below 20 Hz. For each low-frequency oscillator, PAC was calculated using the amplitude of the first identified high-gamma oscillator within the same channel.
+Although SSR provides these quantities at every sample, they were summarized in overlapping 50\,ms windows with a 10\,ms step so that the SSR features could be used with exactly the same windowing, temporal context and decoder as the bandpass features. Three SSR feature sets were evaluated: amplitude only, amplitude plus low-frequency phase, and amplitude plus low-frequency phase plus PAC. Phase and PAC features were extracted only from oscillators below 20\,Hz. For each low-frequency oscillator, PAC was calculated using the amplitude of the first identified high-gamma oscillator within the same channel.
 
 For each window $W$, the amplitude feature was the mean oscillator amplitude:
 \begin{equation}
@@ -115,17 +143,46 @@ Because phase is circular, phase was represented by the sine and cosine componen
     f_{\sin}(W,j) &= \operatorname{Im}\left(\frac{1}{|W|}\sum_{t\in W} e^{i\Phi_{j,t}}\right), \\
     f_{\cos}(W,j) &= \operatorname{Re}\left(\frac{1}{|W|}\sum_{t\in W} e^{i\Phi_{j,t}}\right).
 \end{align}
-Within-channel PAC features were defined as the mean vector length of high-gamma amplitude weighted by low-frequency phase:
+Within-channel PAC features were defined as the mean vector length of high-gamma amplitude weighted by low-frequency phase~\cite{Canolty2006}:
 \begin{equation}
     f_{\mathrm{pac}}(W,j)=\left|\frac{1}{|W|}\sum_{t\in W} A_{\mathrm{HG},t} e^{i\Phi_{j,t}}\right|.
 \end{equation}
+Note that a 50\,ms window covers only a fraction of a cycle of a slow rhythm, so this quantity is not a PAC estimate in the usual sense, which requires many cycles~\cite{Tort2010,Aru2015}. Within one window the low-frequency phase is nearly constant, so $f_{\mathrm{pac}}$ is close to the window-mean high-gamma amplitude, scaled by the phase concentration within the window (see section~\ref{sec:res_pac}). As a variant that retains the phase at which high-gamma amplitude occurs, we also computed the real and imaginary parts of the same complex mean (phase-resolved PAC, two features per low-frequency oscillator); these are amplitude-phase interaction terms that a linear decoder cannot form from separate amplitude and phase features.
+
+\subsection{Bandpass features}
+\label{sec:bandpass}
+
+The bandpass baseline followed the Verwoert et al. framework~\cite{dataset} with causal filtering. Each channel was linearly detrended and filtered with a 409-tap (400\,ms) Hamming-window finite impulse response (FIR) bandpass filter between 70 and 170\,Hz, applied causally. Line-noise harmonics at 100 and 150\,Hz were attenuated with zero-phase band-stop filters, and the envelope was obtained with the Hilbert transform. For the HG + LP model, a 409-tap FIR low-pass filter at 20\,Hz was applied in the same way, and the Hilbert amplitude and the sine and cosine of the Hilbert phase of the low-passed signal were added. All quantities were averaged in the same 50\,ms windows as the SSR features. A linear-phase FIR filter with $N$ taps delays its output by $(N-1)/2$ samples, here 204 samples or 199\,ms. In addition, the band-stop filters and the Hilbert transform were applied to the whole recording and are therefore not causal. The bandpass features are thus neither fully causal nor time-aligned with the SSR features, which we take into account below.
+
+To make the two frameworks directly comparable, we added bandpass counterparts for every SSR feature set (table~\ref{tab:ladder}): (i) HG + LP amplitude (no phase), mirroring amplitude-only SSR, which also contains low-frequency oscillator amplitudes; (ii) HG + LP + PAC, in which bandpass PAC was computed exactly as the SSR PAC feature from the low-pass Hilbert phase and the high-gamma envelope; (iii) delay-compensated versions of the bandpass features, in which the same FIR filters were applied centred (zero phase), removing the 199\,ms delay without changing the magnitude response; and (iv) a \emph{matched bandpass} feature set in which every SSR oscillator of every channel was replaced by an FIR bandpass filter (same 409-tap design) spanning the $-3$\,dB passband of that oscillator's SSR filter, followed by the Hilbert transform. The matched bandpass features use the same frequencies, bandwidths, preprocessing, windowing and feature definitions as the SSR features, so that they differ only in how the analytic signal of each oscillator is estimated. As a control for what the low-frequency phase features encode, we also computed the window mean of the low-passed voltage itself (the local motor potential, LMP~\cite{Schalk2007}).
+
+\begin{table}[!htb]
+\centering
+\small
+\caption{Matched comparison design. Each row isolates one factor; the bandpass counterparts in the right column differ from the SSR feature set in that factor only. Results of the new comparisons are pending (\texttt{run\_comparisons.py}).}
+\label{tab:ladder}
+\begin{tabular}{p{0.27\textwidth}p{0.2\textwidth}p{0.42\textwidth}}
+\toprule
+\textbf{Factor} & \textbf{SSR feature set} & \textbf{Bandpass counterpart(s)} \\
+\midrule
+Amplitude & Amplitude SSR & HG; HG + LP amplitude; matched bandpass amplitude \\
++ low-frequency phase & Amplitude + phase SSR & HG + LP; matched bandpass amplitude + phase \\
++ PAC & Full SSR & HG + LP + PAC; matched bandpass with PAC \\
+Phase-resolved PAC & Full SSR (complex PAC) & HG + LP + complex PAC \\
+Estimator (frequencies fixed) & all SSR sets & matched bandpass, causal and delay-compensated \\
+Filter delay & -- & HG and HG + LP, causal versus delay-compensated \\
+Low-frequency voltage & -- & HG + LP + LMP \\
+Decoder look-ahead & all sets & all sets, with past-only temporal context \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \subsection{Parameter initialization with SOMATA}
 \label{sec:parameters}
 
-Oscillator frequencies, damping coefficients, and process variances were initialized separately for each subject and channel using the SOMATA iterative state-space fitting procedure~\cite{Beck2023SOMATA}. SOMATA fits the strongest oscillatory component, uses residual structure to initialize additional components, and refits the full model at each iteration. Model selection used changes in log-likelihood to identify a knee point at which additional oscillators gave diminishing returns. To avoid under-specified channel models, a minimum of three oscillators per channel was enforced.
+Oscillator frequencies, damping coefficients, and process variances were initialized separately for each subject and channel using the SOMATA iterative state-space fitting procedure~\cite{Beck2022SOMATA} applied to the first 10\,s of each recording. SOMATA fits the strongest oscillatory component, uses residual structure to initialize additional components, and refits the full model at each iteration. Model selection used changes in log-likelihood to identify a knee point at which additional oscillators gave diminishing returns. To avoid under-specified channel models, a minimum of three oscillators per channel was enforced.
 
-Because speech decoding is known to depend strongly on high-gamma activity, the initialization pipeline also required at least one high-gamma oscillator (70--170 Hz) per channel. If the selected SOMATA model did not contain a high-gamma oscillator, higher-iteration models were searched. If no high-gamma oscillator was found within seven iterations, a participant-level high-gamma frequency template was derived from the other channels by applying Gaussian kernel density estimation to identified high-gamma frequencies and selecting dominant peaks with \texttt{find\_peaks}. Template oscillator damping and process-noise parameters were estimated by averaging matching oscillators from other channels within a $\pm 7$ Hz window. This high-gamma fallback step was a pragmatic heuristic and is treated as a limitation rather than as a fully optimized model-selection procedure.
+Because speech decoding is known to depend strongly on high-gamma activity, the initialization pipeline also required at least one high-gamma oscillator (70--170\,Hz) per channel. If the selected SOMATA model did not contain a high-gamma oscillator, higher-iteration models were searched. If no high-gamma oscillator was found within seven iterations, a participant-level high-gamma frequency template was derived from the other channels by applying Gaussian kernel density estimation to identified high-gamma frequencies and selecting the two dominant peaks with \texttt{find\_peaks}. Template oscillator damping and process-noise parameters were estimated by averaging matching oscillators from other channels within a $\pm 7$\,Hz window. This fallback was needed for 428 of 1103 channels (39\%), ranging from 6\% (sub-07) to 90\% (sub-06) of the channels of a participant. It is a pragmatic heuristic and is treated as a limitation rather than as a fully optimized model-selection procedure. The resulting models had 3 to 9 oscillators per channel (appendix~\ref{app:algorithm}).
 
 \begin{figure}[!htb]
     \centering
@@ -147,66 +204,66 @@ Because speech decoding is known to depend strongly on high-gamma activity, the 
 
 \subsection{Decoder and hyperparameter selection}
 
-We used Partial Least Squares (PLS) regression rather than the ordinary linear regression used in the original Verwoert et al. baseline. PLS learns a reduced set of latent components that maximize covariance between neural features and spectrogram coefficients, which is useful when the SSR feature set contains multiple oscillators and feature types. The number of PLS components was optimized separately for each feature sets using a grid search, yielding six components for the HG bandpass baseline, eight components for each of the SSR models and nine components for the HG + LP bandpass model (appendix~\ref{app:PLS_n_components}).
-
-
-\subsection{Baselines, comparison scope, and fair-comparison control}
-
-The primary baseline was the conventional high-gamma bandpass feature set from the Verwoert et al. framework: fixed high-gamma filtering followed by amplitude-envelope extraction. This baseline tests whether the richer SSR feature set improves reconstruction relative to a standard high-gamma amplitude pipeline under the same decoder and cross-validation scheme. 
-
-Alongside the standard HG baseline, a second control model was constructed by supplementing the conventional HG amplitude envelopes with low-frequency ($<20$ Hz) phase and amplitude features extracted via a lowpass filter. This conventional HG and low-frequency bandpass model serves as a direct phase-control condition. Within the SSR framework, three incremental configurations were evaluated: an amplitude-only SSR model, an amplitude and low-frequency phase SSR model, and a full SSR model incorporating amplitude, phase, and phase-amplitude coupling (PAC) features.
-
-By comparing the lowpass-supplemented bandpass baseline against the phase-aware SSR models, we can distinguish between two competing hypotheses: first, that any appropriately extracted of low-frequency phase improves speech reconstruction; or second, that the SSR framework provides superior phase estimation or subject-specific tracking beyond conventional narrowband Hilbert features. 
-
-\begin{comment}
-However, the comparison is not sufficient to isolate the source of the phase-related gain. The full SSR model includes amplitude, low-frequency phase, and PAC features, whereas the primary bandpass baseline contains high-gamma amplitude features only. A stricter phase-control analysis would extract low-frequency phase and PAC from conventionally narrowband-filtered signals, for example theta-band filtering followed by Hilbert phase estimation, and add those features to the bandpass baseline. Such a control would distinguish two hypotheses: first, that any appropriately extracted low-frequency phase improves speech reconstruction; second, that SSR provides superior phase estimation or subject-specific tracking beyond conventional narrowband Hilbert features. The present manuscript therefore frames the phase result as evidence that low-frequency timing features improve decoding within the SSR pipeline, not as evidence that SSR phase estimates are intrinsically superior to conventional narrowband phase estimates.
-\end{comment}
+We used Partial Least Squares (PLS) regression~\cite{Wold2001} rather than the ordinary linear regression used in the original Verwoert et al. baseline. PLS learns a reduced set of latent components that maximize covariance between neural features and spectrogram coefficients, which is useful when the SSR feature set contains multiple oscillators and feature types. Features from the current window were stacked with those of four preceding and four following windows at 50\,ms spacing, i.e.\ a temporal context of $\pm200$\,ms, as in Verwoert et al.~\cite{dataset}; note that this context includes 200\,ms of future neural data. Features were $z$-scored with the mean and standard deviation of the training folds. The number of PLS components was optimized separately for each feature set using a grid search (3--11 components), yielding six components for the HG bandpass baseline, eight components for each of the SSR models and nine components for the HG + LP bandpass model (appendix~\ref{app:PLS_n_components}). This search was evaluated on the same cross-validation folds used to report performance; a nested cross-validation, in which the number of components is selected within each training set, is implemented for the matched comparisons \todo{report nested results}.
 
 \subsection{Performance evaluation}
 
-Reconstruction performance was evaluated using the Pearson correlation coefficient between the reconstructed spectrogram and the ground-truth speech spectrogram. We followed the non-shuffled 10-fold cross-validation procedure of Verwoert et al.~\cite{dataset}: nine folds were used for training and one fold for testing in each iteration. The first 10 seconds were excluded from decoding evaluation because they were used for SSR parameter initialization. Model performance was compared with an empirical shuffled baseline to compute $z$-scores. For each participant, validation fold, and Mel-frequency bin, reconstruction correlations were Fisher $r$-to-$z$ transformed and then averaged across the 23 Mel bins, yielding one value per fold. Because all configurations were evaluated on identical cross-validation folds, configurations were compared using paired fold-level differences, averaged within each participant. Group-level inference treated participants as the unit of analysis ($n = 10$): each contrast was tested with a paired $t$-test on participant-mean differences. $P$-values for the six planned contrasts were corrected using the Benjamini--Hochberg false discovery rate procedure~\cite{benjamini1995}. Within-participant effects were tested across each participant's $k = 10$ folds with the corrected resampled $t$-test~\cite{nadeau2003}. Within-participant $p$-values were FDR-corrected across participants for each contrast.
+Reconstruction performance was evaluated using the Pearson correlation coefficient between the reconstructed spectrogram and the ground-truth speech spectrogram. We followed the non-shuffled 10-fold cross-validation procedure of Verwoert et al.~\cite{dataset}: nine folds were used for training and one fold for testing in each iteration. The first 10 seconds were excluded from decoding evaluation because they were used for SSR parameter initialization. Chance level was estimated as in Verwoert et al.: the ground-truth spectrogram was split at a random point (at least 10\% of the recording from either end), the two parts were swapped, and the correlation with the original spectrogram was computed (1000 repetitions). This null distribution reflects the temporal structure of the speech spectrogram and does not depend on the neural features, so it is the same for all feature sets; $z$-scores express each model's mean correlation relative to it.
 
-\subsection{Computational Benchmarking and Real-Time Latency Analysis}
+For each participant, validation fold, and Mel-frequency bin, reconstruction correlations were Fisher $r$-to-$z$ transformed and then averaged across the 23 Mel bins, yielding one value per fold. Because all configurations were evaluated on identical cross-validation folds, configurations were compared using paired fold-level differences, averaged within each participant. Group-level inference treated participants as the unit of analysis ($n = 10$): each contrast was tested with a paired $t$-test on participant-mean differences. $P$-values for the six planned contrasts were corrected using the Benjamini--Hochberg false discovery rate procedure~\cite{benjamini1995}. Within-participant effects were tested across each participant's $k = 10$ folds with the corrected resampled $t$-test~\cite{nadeau2003}. Within-participant $p$-values were FDR-corrected across participants for each contrast. These statistics are implemented in \texttt{stats\_contrasts.py}.
 
-To evaluate the feasibility of real-time online execution given a $10\text{ ms}$ frame shift, we benchmarked the execution time of the individual components in the SSR feature extraction pipeline. Although feature extraction was performed offline, all algorithms were implemented causally to mirror an online architecture. Rather than re-initializing state structures for every chunk, internal state-space variables were carried forward continuously across adjacent $50\text{ ms}$ blocks, as would be done in a real-time system.
-Linear detrending and line-noise removal were excluded from the timing evaluation.
+\subsection{Computational benchmarking and real-time latency analysis}
 
-The extraction pipeline was segmented into three sequential operations: first, internal state-space parameter filtering per $50\text{ ms}$ block, parallelized across channels using four CPU threads; second, the computation of instantaneous amplitude, phase, and PAC features across all extracted state-space oscillators for every channel; and third, feature concatenation across time bins prior to entering the decoder.
+To evaluate the feasibility of real-time online execution given a $10\text{ ms}$ frame shift, we benchmarked the execution time of the individual components in the SSR feature extraction pipeline. Although feature extraction was performed offline, all SSR algorithms were implemented causally to mirror an online architecture. Rather than re-initializing state structures for every chunk, internal state-space variables were carried forward continuously across adjacent $50\text{ ms}$ blocks, as would be done in a real-time system. Linear detrending and line-noise removal were excluded from the timing evaluation.
 
-All timing benchmarks were measured on an Apple M1 with 16~GB memory.
+The extraction pipeline was segmented into three sequential operations: first, Kalman filtering of each channel per $50\text{ ms}$ block (measured on 20 channels per participant, parallelized over four CPU threads); second, the computation of instantaneous amplitude, phase, and PAC features across all oscillators of all channels for one window; and third, feature stacking across temporal context windows prior to entering the decoder. We additionally timed a streaming implementation of the steady-state filter (section~\ref{sec:ssr_filters}) that updates all channels of a participant sample by sample.
+
+The original timing benchmarks were measured on an Apple M1 with 16~GB memory. \todo{Specify the hardware used for the steady-state benchmark.}
 
 \section{Results}
 
 \subsection{State-space model validation}
 
-The SSR model was fit across all ten participants and their electrode channels. To assess whether the state-space models captured the intended spectral structure, we compared the raw power spectra with the distribution of tracked oscillator frequencies (figure~\ref{fig:model_fits}). The spectra followed the expected $1/f$ trend, with high power at low frequencies and lower power at high frequencies. The fitted oscillator distributions included many low-frequency components as well as a distinct high-gamma cluster, most prominently between approximately 75 and 90 Hz for participants 1--8. This indicates that the pipeline tracked both dominant low-frequency components and high-gamma activity despite the large low-frequency background.
+The SSR model was fit across all ten participants and their electrode channels. To assess whether the state-space models captured the intended spectral structure, we compared the raw power spectra with the distribution of tracked oscillator frequencies (figure~\ref{fig:model_fits}). The spectra followed the expected aperiodic $1/f$-like trend~\cite{Donoghue2020}, with high power at low frequencies and lower power at high frequencies. The fitted oscillator distributions included many low-frequency components as well as a distinct high-gamma cluster, most commonly between approximately 70 and 90\,Hz. Part of this cluster consists of template oscillators that were added to channels without a high-gamma component of their own (section~\ref{sec:parameters}), which explains the narrow peaks in participants with many template channels (e.g.\ around 75 and 125\,Hz in sub-06 and above 130\,Hz in sub-09). In sub-05, high-gamma oscillators clustered between 100 and 110\,Hz, close to the 100\,Hz line-noise harmonic, which was not removed before SSR filtering (figure~\ref{fig:model_fits}) \todo{check whether these oscillators track line noise; add a 100\,Hz notch}.
 
 \begin{figure}[!htb]
     \centering
     \includegraphics[width=\textwidth]{images/SSR_model_fits_all_subjects.png}
-    \caption{Distribution of tracked state-space oscillators versus power spectral density (PSD) across all channels and participants. The left axis shows the average power spectrum (black line; shaded region denotes $\pm$SEM across channels), and the right axis shows the number of tracked oscillator central frequencies in 10 Hz bins. Dips at 50 Hz and 150 Hz reflect line-noise removal.}
+    \caption{Distribution of tracked state-space oscillators versus power spectral density (PSD) across all channels and participants. The left axis shows the average power spectrum (black line; shaded region denotes $\pm$SEM across channels), and the right axis shows the number of tracked oscillator central frequencies in 10 Hz bins, including high-gamma template oscillators. Dips at 50 Hz and 150 Hz reflect line-noise removal; the 100\,Hz harmonic was not removed (visible e.g.\ in sub-05).}
     \label{fig:model_fits}
 \end{figure}
 
-A single-channel example suggested that SSR high-gamma amplitudes can resemble conventional high-gamma bandpass envelopes, whereas low-frequency oscillator amplitudes more closely track slower changes in the raw signal envelope (figure~\ref{fig:ssr_bandpass_validation}A). Across channels, the correlation between conventional bandpass features and SSR high-gamma oscillator amplitudes varied by participant and oscillator (figure~\ref{fig:ssr_bandpass_validation}B). Some high-gamma SSR amplitudes were strongly aligned with the bandpass baseline, with subject-level medians reaching $r=0.765$ and approximately 70\% of high-gamma oscillators exceeding $r=0.70$ in participants 7 and 9. Across all participants, 30.3\% of the high-gamma oscillators exceeded $r=0.70$, and the mean correlation was $r=0.57$. This mixed alignment is expected because a state-space oscillator can track a narrower or shifted component within the broader high-gamma range.
+\subsection{SSR oscillators are narrow-band causal filters with short delays}
+\label{sec:res_filters}
+
+Expressed as filters (section~\ref{sec:ssr_filters}), SSR oscillators were narrow-band and had short delays (figure~\ref{fig:filters}). In sub-01, high-gamma oscillators had a median $-3$\,dB bandwidth of \todo{X}\,Hz and a median group delay of \todo{X}\,ms, and low-frequency oscillators had a median group delay of \todo{X}\,ms \todo{extend to all participants with compare\_filters.py}. By comparison, the bandpass high-gamma filter spans 100\,Hz and, like the low-pass filter, delays its output by 199\,ms. As a consequence, the causal bandpass envelope lagged the SSR high-gamma amplitude: their correlation peaked when the bandpass envelope was shifted by \todo{X}\,ms, whereas the delay-compensated envelope peaked at \todo{X}\,ms (figure~\ref{fig:filters}C).
 
 \begin{figure}[!htb]
     \centering
-    
+    \figorplaceholder[width=\textwidth]{images/ssr_vs_bandpass_filters_sub-01.png}
+    \caption{SSR oscillators as filters, sub-01. (A) Normalized magnitude response of the SSR oscillators of an example channel, with the 70--170\,Hz bandpass and 20\,Hz low-pass FIR filters of the bandpass features (dashed and dotted). (B) Group delay at the response peak versus oscillator frequency for all oscillators of all channels (colour: $-3$\,dB bandwidth); the dashed line marks the 199\,ms delay of the 409-tap FIR filters. (C) Correlation between SSR high-gamma amplitude features and the high-gamma bandpass envelope as a function of the lag of the bandpass envelope, for the causal (published) and delay-compensated FIR filters (mean $\pm$ SEM over high-gamma oscillators).}
+    \label{fig:filters}
+\end{figure}
+
+A single-channel example suggested that SSR high-gamma amplitudes can resemble conventional high-gamma bandpass envelopes, whereas low-frequency oscillator amplitudes more closely track slower changes in the raw signal envelope (figure~\ref{fig:ssr_bandpass_validation}A). Across channels, the correlation between bandpass features and SSR high-gamma oscillator amplitudes varied by participant and oscillator (figure~\ref{fig:ssr_bandpass_validation}B). Some high-gamma SSR amplitudes were strongly aligned with the bandpass envelope, with subject-level medians reaching $r=0.765$ and approximately 70\% of high-gamma oscillators exceeding $r=0.70$ in participants 7 and 9. Across all participants, 30.3\% of the high-gamma oscillators exceeded $r=0.70$, and the mean correlation was $r=0.57$. This mixed alignment is expected because a state-space oscillator tracks a narrower, possibly shifted component within the broad high-gamma band. These correlations were computed with a non-causal bandpass filter; with the causal FIR filter used for decoding, the unshifted correlation dropped to $r=0.10$ on average because of the 199\,ms delay \todo{regenerate panel B with the delay-compensated filter, extractHG(timing='delay\_compensated'), and commit the code}.
+
+\begin{figure}[!htb]
+    \centering
+
     \begin{subfigure}[b]{0.95\textwidth}
         \centering
         \includegraphics[width=\textwidth]{images/amp_feature_viz.png}
         \caption{Example normalized time-series features.}
     \end{subfigure}
-    
+
     \vspace{0.75em}
-    
+
     \begin{subfigure}[b]{0.95\textwidth}
         \centering
         \includegraphics[width=\textwidth]{images/SSR_bandpass_correlation_grid.png}
         \caption{High-gamma SSR amplitude versus bandpass-envelope correlations.}
     \end{subfigure}
-    \caption{Validation of SSR features against conventional high-gamma bandpass features. Panel A shows raw iEEG envelope, high-gamma bandpass features, and SSR amplitude features for channel 1 of sub-07. Panel B shows the distribution of Pearson correlations between bandpass features and SSR high-gamma oscillator amplitudes across channels and participants. The HG bandpass features shown in both panels were computed using a previous non-causal filtering setup to avoid delay relative to the SSR features, ensuring that the reported correlations reflect feature similarity rather than temporal misalignment.}
+    \caption{Validation of SSR features against conventional high-gamma bandpass features. Panel A shows raw iEEG envelope, high-gamma bandpass features, and SSR amplitude features for channel 1 of sub-07. Panel B shows the distribution of Pearson correlations between bandpass features and SSR high-gamma oscillator amplitudes across channels and participants. The HG bandpass features shown in both panels were computed with a non-causal (zero-phase) filter, so that the correlations reflect feature similarity rather than the 199\,ms delay of the causal FIR filter.}
     \label{fig:ssr_bandpass_validation}
 \end{figure}
 
@@ -214,9 +271,9 @@ A single-channel example suggested that SSR high-gamma amplitudes can resemble c
 \subsection{Oscillator relevance and PLS weighting}
 \label{sec:result_oscImportance}
 
-Correlations between individual SSR amplitude features and the recorded spectrogram suggested that high-gamma oscillators were more speech-informative than non-high-gamma oscillators in most participants (figure~\ref{fig:oscillator_pls}). High-gamma oscillators had significantly higher absolute feature--spectrogram correlations than non-high-gamma oscillators in 9 of 10 participants ($p<0.001$). Effect sizes varied across participants: several participants showed large shifts ($d>1.0$ for sub-07, sub-08, and sub-10), whereas others showed more modest effects ($d<0.5$ for sub-01, sub-03, and sub-06). This variability motivated the use of PLS rather than manual frequency-subset selection, because explicit feature restriction could overfit to subject-specific spectral patterns.
+Correlations between individual SSR amplitude features and the recorded spectrogram suggested that high-gamma oscillators were more speech-informative than non-high-gamma oscillators in most participants (figure~\ref{fig:oscillator_pls}). High-gamma oscillators had higher absolute feature--spectrogram correlations than non-high-gamma oscillators in 9 of 10 participants (one-sided Mann--Whitney test across oscillators, $p<0.001$; oscillators of the same channel are not independent, so these $p$-values are descriptive). Effect sizes varied across participants: several participants showed large shifts ($d>1.0$ for sub-07, sub-08, and sub-10), whereas others showed more modest effects ($d<0.5$ for sub-01, sub-03, and sub-06). This variability motivated the use of PLS rather than manual frequency-subset selection, because explicit feature restriction could overfit to subject-specific spectral patterns. \todo{these correlations compare neural window $t$ with audio window $t+200$\,ms (the spectrogram file is aligned to stacked features) and include the initialization segment; recompute aligned or state the lag}
 
-After fitting the PLS decoder, the absolute PLS weights indicated that the decoder assigned larger weights to localized frequency clusters, especially within the 30--170 Hz range (figure~\ref{fig:oscillator_pls}). For example, sub-10 showed a cluster of high weights between approximately 100 and 110 Hz, whereas sub-02, sub-06, and sub-07 showed flatter weight distributions. These patterns are consistent with the view that speech-relevant information is often concentrated in high-gamma or adjacent frequency ranges, but the precise informative bands vary across participants, likely reflecting both physiology and electrode coverage.
+After fitting the PLS decoder, the absolute PLS weights indicated that the decoder assigned larger weights to localized frequency clusters, especially within the 30--170 Hz range (figure~\ref{fig:oscillator_pls}). For example, sub-10 showed a cluster of high weights between approximately 100 and 110 Hz, whereas sub-02, sub-06, and sub-07 showed flatter weight distributions. These patterns are consistent with the view that speech-relevant information is often concentrated in high-gamma or adjacent frequency ranges, but the precise informative bands vary across participants, likely reflecting both physiology and electrode coverage. Weights of a multivariate decoder reflect both signal and noise suppression and should not be read directly as feature relevance~\cite{Haufe2014}.
 
 \begin{figure}[!htb]
     \centering
@@ -235,32 +292,24 @@ After fitting the PLS decoder, the absolute PLS weights indicated that the decod
         \caption{Absolute PLS weights by oscillator frequency.}
     \end{subfigure}
 
-    \caption{Frequency-specific relevance of SSR oscillators. Panel A shows the absolute correlation between individual oscillator amplitude features and the recorded spectrogram; high-gamma and non-high-gamma means are indicated by dashed and dotted lines. Panel B shows the absolute PLS weights assigned to SSR oscillator features, indicating the relative contribution of frequency bands to reconstruction.}
+    \caption{Frequency-specific relevance of SSR oscillators. Panel A shows the absolute correlation between individual oscillator amplitude features and the mean of the recorded log-mel spectrogram; high-gamma and non-high-gamma means are indicated by dashed and dotted lines. Panel B shows the absolute PLS weights (averaged over Mel bins and temporal context) assigned to SSR oscillator features in the last cross-validation fold.}
     \label{fig:oscillator_pls}
 \end{figure}
 
-\subsection{Decoding performance across SSR feature configurations}
+\subsection{Decoding performance across feature configurations}
 
+At the participant level, incorporating low-frequency information generally improved reconstruction relative to the HG-only bandpass baseline (figure~\ref{fig:comparison_phase_PAC_amp}). The HG + LP bandpass model, amplitude + phase SSR model, and full SSR model showed positive mean gains in 9 of 10 participants, whereas amplitude-only SSR produced more variable changes (better in five participants and worse in five, most clearly in sub-01, sub-02, sub-05 and sub-09). The participant-level effects differed, with particularly large improvements for some participants, such as sub-05 and sub-07, and decreases for sub-09 with all alternative feature sets.
 
-At the participant level, incorporating low-frequency information generally improved reconstruction relative to the HG-only bandpass baseline (Figure~\ref{fig:comparison_phase_PAC_amp}). The HG+LP bandpass model, amplitude+phase SSR model, and full SSR model showed positive mean gains in most participants, whereas amplitude-only SSR produced more variable changes. The participant-level effects differed, with particularly large improvements for some participants, like sub-07, and decreases for others, most notably sub-09.
+At the group level, every feature configuration exceeded the chance distribution and achieved high $z$-scores (table~\ref{tab:model_performance}). The HG bandpass model achieved a mean reconstruction correlation of $r = 0.728$, and adding low-frequency bandpass features yielded a significant improvement to $r = 0.761$ ($t(9) = 4.03$, $p_{\mathrm{FDR}} = 0.009$), with performance increasing in 9 of 10 participants. Amplitude-only SSR did not differ significantly from the HG bandpass model ($r = 0.719$; $t(9) = -0.47$, $p_{\mathrm{FDR}} = 0.723$). Adding low-frequency phase to SSR amplitude yielded a significant improvement ($t(9) = 4.37$, $p_{\mathrm{FDR}} = 0.009$), with performance increasing in 9 of 10 participants (7 significant). This brought mean performance to $r = 0.763$, which did not differ significantly from the HG + LP bandpass model ($t(9) = 0.37$, $p_{\mathrm{FDR}} = 0.723$). Adding PAC produced a small further improvement ($\Delta r = +0.003$; $t(9) = 2.04$, $p_{\mathrm{FDR}} = 0.143$), with performance increasing in 6 of 10 participants. The full SSR model, combining amplitude, low-frequency phase, and PAC, produced the highest mean performance ($r = 0.765$) but did not differ significantly from the HG + LP bandpass model ($t(9) = 0.77$, $p_{\mathrm{FDR}} = 0.689$); it was better in 5 of 10 participants (3 significantly). These conclusions did not depend on the selected number of PLS components: with eight components for every feature set, the same contrasts were significant. With five components for every model, however, the HG + LP versus HG contrast was no longer significant, because the larger bandpass feature set benefited from more components.
 
-At the group level, every feature configuration exceeded the shuffled random baseline and achieved high $z$-scores (Table~\ref{tab:baseline}). The HG bandpass model achieved a mean reconstruction correlation of $r = 0.728$, and adding low-frequency bandpass features yielded a significant improvement to $r = 0.761$ ($t(9) = 4.03$, $p_{\mathrm{FDR}} = 0.009$), with performance increasing in 9 of 10 participants. Amplitude-only SSR did not differ significantly from the HG bandpass model ($r = 0.719$; $t(9) = -0.47$, $p_{\mathrm{FDR}} = 0.723$). Adding low-frequency phase to SSR amplitude yielded a significant improvement ($t(9) = 4.37$, $p_{\mathrm{FDR}} = 0.009$), with performance increasing in 9 of 10 participants (7 significant). This brought mean performance to $r = 0.763$, which did not differ significantly from the HG+LP bandpass model ($t(9) = 0.37$, $p_{\mathrm{FDR}} = 0.723$). Adding PAC produced a small further improvement ($\Delta r = +0.003$; $t(9) = 2.04$, $p_{\mathrm{FDR}} = 0.143$), with performance increasing in 6 of 10 participants. The full SSR model, combining amplitude, low-frequency phase, and PAC, produced the highest mean performance ($r = 0.765$) and while it did differ significantly from the HG+LP bandpass model ($t(9) = 0.77$, $p_{\mathrm{FDR}} = 0.689$), the full SSR model was better in 5 of 10 participants (3 significant). 
+Performance across consecutive validation folds is shown in appendix~\ref{app:tempstability}. Performance remained stable, indicating that the initialized oscillator parameters remained useful throughout the recordings, although longer recordings and online validation would be needed to assess parameter drift more rigorously.
 
-Performance across consecutive validation folds is shown in Appendix \ref{app:tempstability}. Performance remained stable, indicating that the initialized oscillator parameters remained useful throughout the recordings, although longer recordings and online validation would be needed to assess parameter drift more rigorously.
-
-\begin{comment}
-previous text:
-
-Eight out of ten participants had higher reconstruction correlations with at least one SSR feature configuration than with the high-gamma bandpass baseline (figure~\ref{fig:comparison_phase_PAC_amp}). The largest improvement was observed in sub-01 ($\Delta r=0.15$ for the full SSR model). The two participants who did not clearly benefit were sub-03 and sub-06; their performance decreases were small for the reported comparisons ($\Delta r=-0.036$ for amplitude-only SSR in sub-03 and $\Delta r=-0.0006$ for full SSR in sub-06), but they are important non-responder cases.
-
-At the group level, every SSR configuration exceeded the shuffled random baseline and achieved high $z$-scores (table~\ref{tab:model_performance}). The full SSR model, combining amplitude, low-frequency phase, and PAC, produced the highest mean performance ($r=0.765$) and improved over the high-gamma bandpass baseline ($r=0.710$; paired $t(9)=3.64$, $p=0.0054$). Adding low-frequency phase to SSR amplitude yielded a significant improvement ($t(9)=3.81$, $p_{\mathrm{corrected}}=0.0083$). Adding PAC produced only a small additional increase and did not survive correction ($t(9)=2.11$, $p_{\mathrm{corrected}}=0.0640$), although performance increased in 7 of 10 participants.
-\end{comment}
-
+\todo{Add the matched comparisons of table~\ref{tab:ladder} (HG + LP amplitude, HG + LP + PAC, matched bandpass, delay-compensated filters, past-only temporal context) once run for all participants with run\_comparisons.py --n-comp nested.}
 
 \begin{figure}[!htb]
     \centering
-    \includegraphics[width=0.80\linewidth]{images/correlations_CI_scatter.png}
-    \caption{Decoding performance across SSR feature sets compared with the high-gamma bandpass baseline. SSR configurations include amplitude-only features, amplitude plus low-frequency phase, and amplitude plus low-frequency phase plus PAC.}
+    \includegraphics[width=\linewidth]{images/correlations_CI_scatter.png}
+    \caption{Change in reconstruction correlation relative to the high-gamma bandpass baseline for the HG + LP bandpass model and the three SSR feature sets (amplitude only; amplitude plus low-frequency phase; amplitude plus low-frequency phase plus PAC). Bars show participant means over folds with 95\% confidence intervals; dots show individual folds.}
     \label{fig:comparison_phase_PAC_amp}
 \end{figure}
 
@@ -268,100 +317,88 @@ At the group level, every SSR configuration exceeded the shuffled random baselin
 \centering
 \small
 \setlength{\tabcolsep}{5pt}
-\caption{Model performance and empirical shuffled controls. Mean Pearson correlations are averaged across all ten participants. $Z$-scores quantify the standardized distance between true model performance and the shuffled random-control distribution.}
+\caption{Model performance relative to chance. Mean Pearson correlations are averaged across all ten participants. The chance distribution (correlation of the spectrogram with circularly shifted copies of itself) does not depend on the features; it is listed per model only because it was re-sampled for every run. $Z$-scores quantify the distance between the mean model correlation and the chance distribution in units of its standard deviation.}
 \label{tab:model_performance}
-\begin{tabular}{lccc}
+\begin{tabular}{lcccc}
 \toprule
-\textbf{Model framework} & \textbf{Mean correlation ($r$)} & \textbf{Random control ($r \pm$ SD)} & \textbf{$Z$-score} \\
+\textbf{Model framework} & \textbf{PLS components} & \textbf{Mean correlation ($r$)} & \textbf{Chance ($r \pm$ SD)} & \textbf{$Z$-score} \\
 \midrule
 HG bandpass
-  & 0.7281 & $\phantom{-}0.0017 \pm 0.1601$ & 4.54 \\
+  & 6 & 0.728 & $\phantom{-}0.002 \pm 0.160$ & 4.54 \\
 HG + LP bandpass
-  & 0.7614 & $-0.0011 \pm 0.1599$ & 4.77 \\
+  & 9 & 0.761 & $-0.001 \pm 0.160$ & 4.77 \\
 Amplitude-only SSR
-  & 0.7187 & $\phantom{-}0.0016 \pm 0.1601$ & 4.48 \\
+  & 8 & 0.719 & $\phantom{-}0.002 \pm 0.160$ & 4.48 \\
 Amplitude + phase SSR
-  & 0.7628 & $\phantom{-}0.0003 \pm 0.1601$ & 4.76 \\
+  & 8 & 0.763 & $\phantom{-}0.000 \pm 0.160$ & 4.76 \\
 Amplitude + phase + PAC SSR
-  & 0.7655 & $-0.0001 \pm 0.1601$ & 4.78 \\
+  & 8 & 0.765 & $-0.000 \pm 0.160$ & 4.78 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\subsection{Temporal stability and spectrogram structure}
+\subsection{PAC features are dominated by high-gamma amplitude}
+\label{sec:res_pac}
 
+Within a 50\,ms window the phase of a slow oscillator changes little, so the PAC feature mostly reproduces the window-mean high-gamma amplitude. In sub-01, PAC features correlated with the corresponding high-gamma amplitude features with a median of $r=$\,\todo{X} (oscillators below 8\,Hz: \todo{X}) \todo{extend to all participants}. This redundancy explains why the PAC features added little beyond amplitude and phase. Phase-resolved PAC features (section~\ref{sec:bandpass}) are being evaluated as an alternative \todo{results}.
 
+\subsection{Spectrogram structure}
 
-Example spectrogram reconstructions for sub-01 are shown in figure~\ref{fig:spectrograms}. The ground-truth spectrogram contains clear harmonic structure and temporal gaps, whereas both reconstructions are smoother and have higher overall intensity. This smoothing was more prominent for the bandpass reconstruction. Absolute error tracks were similar across SSR and bandpass reconstructions, with participant-level correlations ranging from $r=0.54$ in sub-05 to $r=0.76$ in sub-10. These shared errors suggest that many reconstruction failures reflect stimulus-locked acoustic transitions that are difficult for both feature sets and the linear decoder.
+Example spectrogram reconstructions for sub-01 are shown in figure~\ref{fig:spectrograms}. The ground-truth spectrogram contains clear harmonic structure and temporal gaps, whereas both reconstructions are smoother and have higher overall intensity during silence. \todo{quantify smoothing, e.g.\ reconstruction-to-ground-truth standard deviation ratio, before claiming it differs between models} Absolute error tracks were similar across SSR and bandpass reconstructions, with participant-level correlations between the two error tracks ranging from $r=0.64$ in sub-01 to $r=0.78$ in sub-10 \todo{recompute from the final res\_ predictions; the notebook used earlier prediction files and the previous draft reported 0.54--0.76}. These shared errors suggest that many reconstruction failures reflect stimulus-locked acoustic transitions that are difficult for both feature sets and the linear decoder.
 
 \begin{figure}[!htb]
     \centering
     \includegraphics[width=0.70\textwidth]{images/zoomed_spectograms_sub1.png}
-    \caption{Mel-spectrogram comparisons and absolute error tracks for sub-01. The SSR model used amplitude, phase, and PAC features. Reconstructions for all participants are shown in appendix~\ref{app:spetrogramsrec}.}
+    \caption{Mel-spectrogram comparisons and absolute error tracks for a 10\,s excerpt of sub-01. The SSR model used amplitude, phase, and PAC features. Reconstructions for all participants are shown in appendix~\ref{app:spetrogramsrec}. \todo{the time axis of this figure is labelled 10--300\,s but shows a 10\,s excerpt; fix in report\_figures.ipynb (cell 11), also titles ``Ground-Thruth'' and ``PCA''}}
     \label{fig:spectrograms}
 \end{figure}
 
-\begin{comment}
-    
-\begin{figure}[!htb]
-    \centering
-    \includegraphics[width=0.70\textwidth]{images/spectrogram_variance_comparison.png}
-    \caption{Standard deviation of ground-truth and reconstructed spectrograms across participants. The SSR model used amplitude, phase, and PAC features.}
-    \label{fig:std_spectrograms}
-\end{figure}
-\end{comment}
+\subsection{Feature extraction runtime}
 
-\subsection{Feature Extraction Runtime Latency}
-
-The computational pipeline demonstrated low execution times relevant to real-time processing constraints at a 10 ms frame step. 
-Internal causal phase estimation required an average of $1.44\text{ ms}$ per channel per $50\text{ ms}$ block (median: $1.39\text{ ms}$; 95th percentile of channel-mean times: $1.60\text{ ms}$). Deriving the complete multi-channel feature vector (amplitude, phase, and PAC features across all tracked oscillators) required an average of $5.37\text{ ms}$ across participants (95th percentile: $6.83\text{ ms}$; 99th percentile: $7.42\text{ ms}$). Finally, feature stacking across temporal context windows required $0.0170\text{ ms}$ on average, contributing negligible overhead. Combined, these component-level measurements support the potential for low-latency processing required for online brain-computer interfaces.
+Kalman filtering required an average of $1.44\text{ ms}$ per channel per $50\text{ ms}$ block (median: $1.39\text{ ms}$; 95th percentile of channel-mean times: $1.60\text{ ms}$), i.e.\ about 0.29\,ms per channel per 10\,ms frame. Deriving the complete multi-channel feature vector (amplitude, phase, and PAC features across all tracked oscillators) required an average of $5.37\text{ ms}$ per frame across participants (95th percentile: $6.83\text{ ms}$; 99th percentile: $7.42\text{ ms}$). Feature stacking across temporal context windows required $0.017\text{ ms}$ on average. For a participant with 127 channels, the per-sample Kalman filter thus needs about 9\,ms per 10\,ms frame even when spread over four threads, so that together with feature derivation the Python implementation does not yet meet the 10\,ms frame budget. The steady-state form of the filter removes this bottleneck: updating all channels of sub-01 sample by sample took \todo{X}\,ms per 10\,ms frame.
 
 \section{Discussion}
 
 \subsection{Principal findings}
 
-This study evaluated whether subject-specific state-space oscillatory features improve overt-speech spectrogram reconstruction relative to a conventional high-gamma bandpass amplitude baseline. The full SSR model achieved the highest mean correlation, but did not significantly outperform the matched HG+LP bandpass model. Within SSR, the strongest incremental effect came from adding low-frequency phase to SSR amplitude features, whereas PAC provided only a small, non-significant group-level increase.
+SSR features, extracted causally with oscillator parameters estimated once from 10\,s of data, reconstructed speech as accurately as conventional bandpass features in a pipeline that had been designed around the latter. Amplitude-only SSR features performed on par with the high-gamma envelope. Adding low-frequency phase significantly improved SSR performance, to a level comparable with a bandpass model supplemented with low-frequency amplitude and phase. Adding PAC features produced the highest mean performance but only a small, non-significant further gain.
 
-The results support a cautious interpretation: adaptive oscillatory modelling can yield useful speech-decoding features, and low-frequency timing information appears informative in this dataset. The findings do not establish that SSR phase estimation is superior to conventional narrowband Hilbert phase estimation, because the phase-aware SSR and HG + LP bandpass models performed comparably. However, real-time extraction of low-frequency phase is only possible using windowed narrowband estimation alongside forecasting of time-series data. In contract, SSR provided sample-by-sample phase estimates enabling windowless, low latency phase estimation. Thus, SSR provides a coherent framework for combining subject-specific high-gamma amplitude, low-frequency phase, and cross-frequency features in a streaming-compatible decoder.
+We consider this parity the central result, because it was obtained on terms set by the bandpass approach: 50\,ms windows, a $\pm200$\,ms temporal context and a linear decoder tuned for envelopes. Within those constraints, the SSR features bring properties that bandpass features lack. Each SSR oscillator is a causal quadrature filter centred on a frequency identified for that participant and channel, with a delay an order of magnitude shorter than that of the FIR filters used for the bandpass features (section~\ref{sec:res_filters}); amplitude and phase are available at every sample without a Hilbert transform; and low-frequency phase and cross-frequency features follow from the same model rather than from additional, long filters. Real-time estimation of low-frequency phase is otherwise only possible with windowed narrow-band filtering combined with forecasting of the signal~\cite{Zrenner2020,McIntosh2020}, whereas SSR provides it sample by sample~\cite{Wodeyar2021}. SSR thus offers a coherent framework for combining subject-specific high-gamma amplitude, low-frequency phase and cross-frequency features in a streaming-compatible decoder, at no cost in accuracy.
+
+The results do not show that SSR phase is intrinsically more informative than bandpass phase: both frameworks gained similarly from low-frequency information. The low-frequency bandpass features also encode the slow voltage fluctuations themselves (the cosine of the Hilbert phase times the Hilbert amplitude is the low-passed signal), which are informative for movement and speech decoding~\cite{Schalk2007,Proix2022}. The matched comparisons in table~\ref{tab:ladder} are designed to separate these contributions: the delay-compensated and matched bandpass features remove differences in delay and in frequency selection, so that any remaining difference reflects the estimator itself \todo{report}.
 
 \subsection{Implications for feature extraction}
 
 The oscillator-distribution and PLS-weight analyses suggest that informative neural activity was not confined to a single fixed spectral range across all participants. Some participants showed localized high-weight clusters, whereas others showed flatter weight profiles and weaker high-gamma/non-high-gamma separation. This is consistent with the clinical origin of the recordings: electrode locations were determined by seizure-monitoring needs, not by a speech-decoding sampling plan. Subject-specific oscillator tracking may therefore be particularly useful when electrode coverage and spectral profiles vary substantially across participants.
 
-The stability analysis also suggests that oscillator parameters initialized from a short segment can remain useful over subsequent folds. This is encouraging for streaming applications, where continuous re-estimation may be undesirable. Nevertheless, the present analysis used short overt-reading recordings, and longer-duration online tests would be necessary before drawing conclusions about drift, recalibration frequency, or clinical deployment.
+The stability analysis also suggests that oscillator parameters initialized from a short segment can remain useful over subsequent folds. This is encouraging for streaming applications, where continuous re-estimation may be undesirable. Because the decoder was retrained in every fold on data from both before and after the test segment, this analysis is, however, only an indirect test of parameter drift. A forward-chaining evaluation (training on early and testing on progressively later data) and comparison with periodically re-initialized parameters would test drift directly, and longer-duration online tests would be necessary before drawing conclusions about recalibration frequency or clinical deployment.
 
-Furthermore, our computational benchmarking confirms that the feature extraction pipeline comfortably satisfies online processing requirements. Per-frame execution completes within $7\text{ ms}$ on standard hardware, leaving substantial headroom under the $10\text{ ms}$ frame step. Real-time performance can be further optimized by increasing thread parallelization
-or optimizing to run the pipeline in C instead of Python.
+\subsection{Latency}
+
+Two latencies should be distinguished. The feature latency of SSR is short: the group delay of the SSR filters is tens of milliseconds at most (section~\ref{sec:res_filters}), compared with 199\,ms for the 409-tap FIR filters used for the bandpass features. The causal bandpass features were therefore delayed relative to the SSR features; with the symmetric $\pm200$\,ms temporal context, the decoder saw bandpass activity from roughly 400\,ms to 0\,ms before each spectrogram frame but SSR activity from about 200\,ms before to 200\,ms after it. The decoder latency, in turn, is set by the temporal context: stacking 200\,ms of future windows, as in the original framework, implies 200\,ms of look-ahead for every feature set. An online system needs past-only context, a setting in which the shorter feature delay of SSR should matter most \todo{report past-only-context results}.
+
+The current Python implementation of the per-sample Kalman filter does not fit within the 10\,ms frame budget for the full montage (about 9\,ms per frame for 127 channels on four threads, plus 5.4\,ms for feature derivation). Because the parameters are fixed, however, the filter can be run in its steady-state form, which reduces each update to a few complex multiplications per oscillator and makes the computational cost negligible (section~\ref{sec:res_filters}). Feature derivation can likewise be made incremental by updating running window sums rather than recomputing each 50\,ms window.
 
 \subsection{Limitations and future work}
 
 Several limitations should constrain the interpretation of these results. First, the dataset consists of overt word reading in epilepsy participants. The clinical motivation is speech restoration for people with ALS, locked-in syndrome, or other severe motor-speech impairments, but attempted speech and silent speech can differ substantially from overt articulation. The present results should therefore be treated as evidence for overt-speech feature extraction, not as direct evidence for attempted-speech neuroprosthetic performance.
 
-Second, the analysis uses a single public dataset with clinically determined electrode coverage. The number, location, and anatomical distribution of electrodes vary across participants and were not optimized for speech decoding. This limits generalizability and may explain part of the participant-level heterogeneity, including the weaker or absent SSR benefit in sub-03 and sub-06. Replication in additional cohorts and with more systematic speech-area coverage is required.
+Second, the analysis uses a single public dataset with clinically determined electrode coverage. The number, location, and anatomical distribution of electrodes vary across participants and were not optimized for speech decoding. This limits generalizability and may explain part of the participant-level heterogeneity, including the decrease for all alternative feature sets in sub-09 and the losses of amplitude-only SSR in sub-01 and sub-02. Replication in additional cohorts and with more systematic speech-area coverage is required.
 
-Third, the improvement over the high-gamma baseline was modest. The full SSR model improved mean correlation from $r=0.728$ to $r=0.766$, while the amplitude-only SSR model performed similarly to the high-gamma baseline. The HG + LP bandpass model achieved $r=0.761$, suggesting that most of the benefit came from adding low-frequency information rather than from SSR amplitude tracking alone. The PAC contribution was also not statistically significant after correction, even though it improved performance in 7 of 10 participants. PAC should therefore be considered exploratory in the present analysis.
+Third, the improvement over the high-gamma baseline was modest. The full SSR model improved mean correlation from $r=0.728$ to $r=0.765$, while the amplitude-only SSR model performed similarly to the high-gamma baseline. The HG + LP bandpass model achieved $r=0.761$, suggesting that most of the benefit came from adding low-frequency information rather than from SSR amplitude tracking alone. The PAC contribution was also not statistically significant after correction, even though it improved performance in 6 of 10 participants, and the PAC feature as defined here is largely redundant with high-gamma amplitude (section~\ref{sec:res_pac}). PAC should therefore be considered exploratory in the present analysis.
 
-\begin{comment}
-    do you still want to say something about the limitations of the comparison here (e.g. not isolating the PAC effect) or can we completely delete that point? 
-
-Fourth, the baseline comparison is incomplete for isolating the source of the phase effect. A fair phase-control baseline should add conventionally extracted low-frequency phase and PAC features to the bandpass pipeline, using narrowband filtering and Hilbert transforms. Without that control, the current study cannot distinguish whether SSR specifically improves phase estimation or whether the decoder benefits from low-frequency phase features regardless of how they are extracted. This comparison should be prioritized in the next revision or follow-up analysis.
-\end{comment}
-
-Fourth, the SSR parameter-initialization pipeline used heuristic safeguards, including the enforced minimum number of oscillators and the high-gamma fallback template. These choices were motivated by the need to ensure high-gamma coverage across channels, but they should be replaced or validated with a more principled model-selection procedure. Finally, the PLS component count selection was not performed within a nested cross-validation framework. Future work should use nested cross-validation where feasible for the hyperparameter tuning.
- 
-
+Fourth, the SSR parameter-initialization pipeline used heuristic safeguards, including the enforced minimum number of oscillators and the high-gamma fallback template, which supplied the high-gamma oscillators of 39\% of all channels and of 90\% of the channels in sub-06. These choices were motivated by the need to ensure high-gamma coverage across channels, but they should be replaced or validated with a more principled model-selection procedure. In addition, the 100\,Hz line-noise harmonic was not removed before SSR filtering. Finally, the PLS component count selection was not performed within a nested cross-validation framework; the nested procedure implemented for the matched comparisons should be used for all models.
 
 \section{Conclusion}
 
-SSR-derived oscillatory features supported effective overt-speech spectrogram reconstruction, but did not significantly outperform the matched HG + LP bandpass model in this public iEEG dataset. Low-frequency information improved reconstruction in both frameworks: adding low-frequency bandpass features, including phase, improved performance over HG alone, while within SSR, low-frequency phase significantly improved performance over amplitude-only features. PAC provided a small, non-significant additional gain. These findings suggest that subject-specific state-space oscillatory modelling is a promising feature-extraction strategy for neural speech decoding, but stronger conclusions require replication across datasets and validation in attempted-speech settings.
+SSR-derived oscillatory features supported overt-speech spectrogram reconstruction as well as conventional bandpass features in this public sEEG dataset. Low-frequency information improved reconstruction in both frameworks: adding low-frequency bandpass features, including phase, improved performance over high-gamma alone, and within SSR, low-frequency phase significantly improved performance over amplitude-only features. PAC provided a small, non-significant additional gain. Because SSR achieves this parity while estimating subject-specific amplitude and phase causally, sample by sample and with a short delay, state-space oscillatory modelling is a promising feature-extraction strategy for real-time speech neuroprostheses. Stronger conclusions require evaluation with past-only decoder context, replication across datasets, and validation in attempted-speech settings.
 
 \appendix
 
-\section{Appendix}
 \section{Electrode locations in participants}
 \label{app:electrode_locations}
 
-Electrode locations were determined by clinical necessity, and approximately 100 electrodes per participant were recorded. The majority of electrodes were located in white matter (40.3\%) or unlabeled regions (12.6\%). Unlabeled regions included contacts that could not be assigned to a cortical or subcortical label, for example because they were located just outside cortex. Other electrodes were predominantly located in the superior temporal sulcus, hippocampus, and inferior parietal gyrus (figure~\ref{fig:channelDistribution}).
+Electrode locations were determined by clinical necessity, and between 54 and 127 contacts per participant were recorded. The majority of electrodes were located in white matter (40.3\%) or unlabeled regions (12.6\%). Unlabeled regions included contacts that could not be assigned to a cortical or subcortical label, for example because they were located just outside cortex. Other electrodes were predominantly located in the superior temporal sulcus, hippocampus, and inferior parietal gyrus (figure~\ref{fig:channelDistribution}).
 
 \begin{figure}[!htb]
      \centering
@@ -370,9 +407,9 @@ Electrode locations were determined by clinical necessity, and approximately 100
          \includegraphics[width=\textwidth]{channel_region_distribution}
          \caption{Distribution by region.}
      \end{subfigure}
-     
+
      \vspace{0.75em}
-     
+
      \begin{subfigure}[b]{0.95\textwidth}
          \centering
          \includegraphics[width=\textwidth]{participant_ch_regions}
@@ -416,7 +453,7 @@ Algorithm~\ref{alg:parameter_init} summarizes the parameter-initialization proce
 \end{algorithmic}
 \end{algorithm}
 
-Figure~\ref{fig:freq_cluster} shows the participant-level frequency templates used when the fallback step was required. For sub-01, sub-02, sub-03, sub-04, sub-08, and sub-10, extracted high-gamma peaks clustered between 70 and 90 Hz. Sub-05 and sub-09 had both peaks above 100 Hz, and sub-06 and sub-07 had one peak between 70 and 90 Hz and another above 100 Hz.
+Figure~\ref{fig:freq_cluster} shows the participant-level frequency templates used when the fallback step was required. For sub-01, sub-02, sub-03, sub-04, sub-08, and sub-10, extracted high-gamma peaks clustered between 70 and 90 Hz. Sub-05 and sub-09 had both peaks above 100 Hz, and sub-06 and sub-07 had one peak between 70 and 90 Hz and another above 100 Hz. The template was added to 50 (sub-01), 62 (sub-02), 17 (sub-03), 45 (sub-04), 7 (sub-05), 114 (sub-06), 7 (sub-07), 15 (sub-08), 60 (sub-09) and 51 (sub-10) channels.
 
 \begin{figure}[!htb]
     \centering
@@ -428,7 +465,7 @@ Figure~\ref{fig:freq_cluster} shows the participant-level frequency templates us
 \section{PLS hyperparameter optimization}
 \label{app:PLS_n_components}
 
-The number of PLS components was selected separately for each of the five models. HG bandpass features reached their highest validation performance at six components, HG with Low-Pass features reached their highest validation performance at nine components. All SSR feature sets performed best with eight components (figure~\ref{fig:opt_n_components}).
+The number of PLS components was selected separately for each of the five models. HG bandpass features reached their highest validation performance at six components, HG with Low-Pass features reached their highest validation performance at nine components. All SSR feature sets performed best with eight components (figure~\ref{fig:opt_n_components}). Between 6 and 11 components, mean performance varied by less than 0.01 for every model; with fewer components, performance dropped most for the larger feature sets (e.g.\ HG + LP: $r=0.749$ with five and $r=0.719$ with three components).
 
 \begin{figure}[!htb]
     \centering
@@ -437,27 +474,15 @@ The number of PLS components was selected separately for each of the five models
     \label{fig:opt_n_components}
 \end{figure}
 
-\begin{comment}
-The number of PLS components was selected separately for the bandpass and SSR feature sets. The baseline bandpass features reached their highest validation performance at five components, while the SSR features reached their highest validation performance at nine components (figure~\ref{fig:opt_n_components}). Because this search was performed with a preliminary feature-extraction implementation that produced lower absolute correlations than the corrected final pipeline, the selected component counts should be interpreted as fixed pragmatic settings rather than as final hyperparameter estimates.
-
-\begin{figure}[!htb]
-    \centering
-    \includegraphics[width=\linewidth]{images/opt_n_components.png}
-    \caption{Hyperparameter search for the optimal number of components in the PLS decoder for SSR only amplitude features were used. Note that due to a limitation in the SSR feature extraction code at the time of this optimization, the absolute correlation values shown are lower than the final results. However, the overall shape and the optimal number of components remain valid.}
-    \label{fig:opt_n_components}
-\end{figure}
-\end{comment}
-
-
-\section{Temporal Stability}
+\section{Temporal stability}
 \label{app:tempstability}
 
-SSR performance remained stable across consecutive validation folds (figure~\ref{fig:fold_stability}). The trend lines suggest that the gap between SSR and the bandpass baseline was not driven by a single late or early segment. Because SSR parameters were initialized from the first 10 seconds only, this stability indicates that the fitted oscillator parameters remained useful over the later segments of the recording, although longer recordings and online validation would be needed to assess parameter drift more rigorously.
+SSR performance remained stable across consecutive validation folds (figure~\ref{fig:fold_stability}). The trend lines suggest that the gap between SSR and the bandpass baseline was not driven by a single late or early segment, and the bandpass baseline showed a similar small downward trend, indicating that the trend reflects the data rather than degradation of the SSR parameters. Because SSR parameters were initialized from the first 10 seconds only, this stability indicates that the fitted oscillator parameters remained useful over the later segments of the recording, although longer recordings and online validation would be needed to assess parameter drift more rigorously.
 
 \begin{figure}[!htb]
     \centering
     \includegraphics[width=0.80\linewidth]{images/fold_stability_trends_new.png}
-    \caption{Performance stability across validation folds. Each fold represents a consecutive 30-second data segment, with dashed lines indicating linear trends and their slopes.}
+    \caption{Performance stability across validation folds. Each fold represents a consecutive segment of approximately 29\,s, with dashed lines indicating linear trends and their slopes.}
     \label{fig:fold_stability}
 \end{figure}
 
@@ -469,25 +494,25 @@ SSR performance remained stable across consecutive validation folds (figure~\ref
      \centering
      \begin{subfigure}[b]{0.48\textwidth}
          \centering
-         \includegraphics[width=\textwidth]{images/sub-01_spectograms_vertical.png}
+         \figorplaceholder[width=\textwidth]{images/sub-01_spectograms_vertical.png}
          \caption{Sub-01}
      \end{subfigure}
      \hfill
      \begin{subfigure}[b]{0.48\textwidth}
          \centering
-         \includegraphics[width=\textwidth]{images/sub-02_spectograms_vertical.png}
+         \figorplaceholder[width=\textwidth]{images/sub-02_spectograms_vertical.png}
          \caption{Sub-02}
      \end{subfigure}
      \hfill
      \begin{subfigure}[b]{0.48\textwidth}
          \centering
-         \includegraphics[width=\textwidth]{images/sub-03_spectograms_vertical.png}
+         \figorplaceholder[width=\textwidth]{images/sub-03_spectograms_vertical.png}
          \caption{Sub-03}
      \end{subfigure}
      \hfill
      \begin{subfigure}[b]{0.48\textwidth}
          \centering
-         \includegraphics[width=\textwidth]{images/sub-04_spectograms_vertical.png}
+         \figorplaceholder[width=\textwidth]{images/sub-04_spectograms_vertical.png}
          \caption{Sub-04}
      \end{subfigure}
     \caption{Reconstructed Mel-spectrogram comparisons for sub-01 to sub-04, showing ground-truth audio, bandpass reconstruction, and full SSR reconstruction.}
@@ -498,37 +523,37 @@ SSR performance remained stable across consecutive validation folds (figure~\ref
      \centering
      \begin{subfigure}[b]{0.48\textwidth}
          \centering
-         \includegraphics[width=\textwidth]{images/sub-05_spectograms_vertical.png}
+         \figorplaceholder[width=\textwidth]{images/sub-05_spectograms_vertical.png}
          \caption{Sub-05}
      \end{subfigure}
      \hfill
      \begin{subfigure}[b]{0.48\textwidth}
          \centering
-         \includegraphics[width=\textwidth]{images/sub-06_spectograms_vertical.png}
+         \figorplaceholder[width=\textwidth]{images/sub-06_spectograms_vertical.png}
          \caption{Sub-06}
      \end{subfigure}
      \hfill
      \begin{subfigure}[b]{0.48\textwidth}
          \centering
-         \includegraphics[width=\textwidth]{images/sub-07_spectograms_vertical.png}
+         \figorplaceholder[width=\textwidth]{images/sub-07_spectograms_vertical.png}
          \caption{Sub-07}
      \end{subfigure}
      \hfill
      \begin{subfigure}[b]{0.48\textwidth}
          \centering
-         \includegraphics[width=\textwidth]{images/sub-08_spectograms_vertical.png}
+         \figorplaceholder[width=\textwidth]{images/sub-08_spectograms_vertical.png}
          \caption{Sub-08}
      \end{subfigure}
      \hfill
      \begin{subfigure}[b]{0.48\textwidth}
          \centering
-         \includegraphics[width=\textwidth]{images/sub-09_spectograms_vertical.png}
+         \figorplaceholder[width=\textwidth]{images/sub-09_spectograms_vertical.png}
          \caption{Sub-09}
      \end{subfigure}
      \hfill
      \begin{subfigure}[b]{0.48\textwidth}
          \centering
-         \includegraphics[width=\textwidth]{images/sub-10_spectograms_vertical.png}
+         \figorplaceholder[width=\textwidth]{images/sub-10_spectograms_vertical.png}
          \caption{Sub-10}
      \end{subfigure}
      \caption{Mel-spectrogram comparisons and absolute error tracks for sub-05 to sub-10. The SSR model used amplitude, phase, and PAC features.}
@@ -541,66 +566,9 @@ SSR performance remained stable across consecutive validation folds (figure~\ref
 
 \roles{TODO: replace with confirmed CRediT contributor roles for all authors. Draft roles: Lisa Ponsteen: Conceptualization, Methodology, Software, Formal analysis, Visualization, Writing -- original draft. R. Cavill: Supervision, Methodology, Writing -- review and editing. C. Herff: Supervision, Methodology, Writing -- review and editing. A. Wodeyar: Supervision, Methodology, Writing -- review and editing.}
 
-\data{The iEEG, audio, and stimulus-timing data used in this study are publicly available from Verwoert et al.~\cite{dataset}. The conventional baseline pipeline was adapted from the Verwoert et al. codebase. The SSR feature-extraction and analysis scripts used for this manuscript have not yet been deposited in a public repository at the time of manuscript preparation. Before submission, this statement should will be updated with a repository URL and persistent identifier.}
+\data{The iEEG, audio, and stimulus-timing data used in this study are publicly available from Verwoert et al.~\cite{dataset}. The conventional baseline pipeline was adapted from the Verwoert et al. codebase. The SSR feature-extraction and analysis code is available at \url{https://github.com/wodeyara/SSR-neural-speech-decoding} \todo{add a release tag / persistent identifier (e.g.\ Zenodo DOI) before submission}.}
 
-
-\begin{thebibliography}{99}
-
-\bibitem{Silva2024}
-A.B. Silva, F.R. Willett, E.M. Castenon, et al. A high-performance neuroprosthesis for speech decoding and avatar control. \textit{Nature} 620, 1037--1046 (2024). \href{https://doi.org/10.1038/s41586-023-06443-4}{https://doi.org/10.1038/s41586-023-06443-4}
-
-\bibitem{Chang2010}
-E.F. Chang, J.W. Rieger, K. Johnson, M.S. Berger, N.M. Barbaro, and R.T. Knight. Categorical speech representation in human superior temporal gyrus. \textit{Nature Neuroscience} 13, 1428--1432 (2010). \href{https://doi.org/10.1038/nn.2641}{https://doi.org/10.1038/nn.2641}
-
-\bibitem{dataset}
-M.H. Verwoert, M.C. Ottenhoff, A.C. Siero, N.F. Ramsey, and M. Angrick. Dataset of speech production in intracranial electroencephalography. \textit{Scientific Data} 9, 434 (2022). \href{https://doi.org/10.1038/s41597-022-01542-9}{https://doi.org/10.1038/s41597-022-01542-9}
-
-\bibitem{Kearney2019}
-E. Kearney, Z. Guenther, M. Brumberg, B. Krusienski, and P. Brunner. High gamma power features for speech decoding from EEG. \textit{Journal of Neural Engineering} 16, 066015 (2019). \href{https://doi.org/10.1088/1741-2552/ab3bb5}{https://doi.org/10.1088/1741-2552/ab3bb5}
-
-\bibitem{Littlejohn2025}
-K.T. Littlejohn, D.A. Moses, M.K. Leonard, et al. A streaming brain-to-voice neuroprosthesis to restore naturalistic communication. \textit{Nature Neuroscience} 28, 902--912 (2025). \href{https://doi.org/10.1038/s41593-025-01905-6}{https://doi.org/10.1038/s41593-025-01905-6}
-
-\bibitem{Wairagkar2024}
-M. Wairagkar, N.S. Card, T. Singer-Clark, et al. An instantaneous voice synthesis neuroprosthesis. \textit{bioRxiv} (2024). \href{https://doi.org/10.1101/2024.08.14.607690}{https://doi.org/10.1101/2024.08.14.607690}
-
-\bibitem{Hyafil2015}
-A. Hyafil, L. Fontolan, C. Kabdebon, B. Gutkin, and A.L. Giraud. Speech encoding by coupled cortical theta and gamma oscillations. \textit{eLife} 4:e06213 (2015). \href{https://doi.org/10.7554/eLife.06213}{https://doi.org/10.7554/eLife.06213}
-
-\bibitem{Canolty2006}
-R.T. Canolty, E. Edwards, S.S. Dalal, et al. High gamma power is phase-locked to theta oscillations in human neocortex. \textit{Science} 313, 5793 (2006). \href{https://doi.org/10.1126/science.1128115}{https://doi.org/10.1126/science.1128115}
-
-\bibitem{Canolty2010}
-R.T. Canolty and R.T. Knight. The functional role of cross-frequency coupling. \textit{Trends in Cognitive Sciences} 14, 506--515 (2010). \href{https://doi.org/10.1016/j.tics.2010.09.001}{https://doi.org/10.1016/j.tics.2010.09.001}
-
-\bibitem{Wodeyar2021}
-A. Wodeyar, M. Schatza, A.S. Widge, U.T. Eden, and M.A. Kramer. A state space modelling approach to real-time phase estimation. \textit{eLife} 10:e68803 (2021). \href{https://doi.org/10.7554/eLife.68803}{https://doi.org/10.7554/eLife.68803}
-
-\bibitem{Matsuda2017}
-T. Matsuda and F. Komaki. Time series decomposition into oscillation components and phase estimation. \textit{Neural Computation} 29, 332--367 (2017). \href{https://doi.org/10.1162/NECO_a_00916}{https://doi.org/10.1162/NECO\_a\_00916}
-
-\bibitem{Beck2023SOMATA}
-A.M. Beck, M. He, R.G. Gutierrez, G.C. Hotan, and P.L. Purdon. An iterative search algorithm to identify oscillatory dynamics in neurophysiological time series. \textit{bioRxiv} (2023). \href{https://doi.org/10.1101/2022.10.30.514422}{https://doi.org/10.1101/2022.10.30.514422}
-
-\bibitem{Angrick2021}
-M. Angrick, M.C. Ottenhoff, L. Diener, et al. Real-time synthesis of imagined speech processes from minimally invasive recordings of neural activity. \textit{Communications Biology} 4, 1055 (2021). \href{https://doi.org/10.1038/s42003-021-02578-0}{https://doi.org/10.1038/s42003-021-02578-0}
-
-\bibitem{Sun2020}
-P. Sun, G.K. Anumanchipalli, and E.F. Chang. Brain2Char: a deep architecture for decoding text from brain recordings. \textit{Journal of Neural Engineering} 17, 066015 (2020). \href{https://doi.org/10.1088/1741-2552/abc742}{https://doi.org/10.1088/1741-2552/abc742}
-
-\bibitem{Makin2020}
-J.G. Makin, D.A. Moses, and E.F. Chang. Machine translation of cortical activity to text with an encoder--decoder framework. \textit{Nature Neuroscience} 23, 575--582 (2020). \href{https://doi.org/10.1038/s41593-020-0608-8}{https://doi.org/10.1038/s41593-020-0608-8}
-
-\bibitem{SpecParamPaper}
-T. Donoghue, M. Haller, E.J. Peterson, et al. Parameterizing neural power spectra into periodic and aperiodic components. \textit{Nature Neuroscience} 23, 1655--1665 (2020). \href{https://doi.org/10.1038/s41593-020-00744-x}{https://doi.org/10.1038/s41593-020-00744-x}
-
-\bibitem{Llorens2011}
-A. Llorens, A. Tr\'ebuchon, C. Li\'egeois-Chauvel, and F.-X. Alario. Intra-cranial recordings of brain activity during language production. \textit{Frontiers in Psychology} 2, 375 (2011). \href{https://doi.org/10.3389/fpsyg.2011.00375}{https://doi.org/10.3389/fpsyg.2011.00375}
-
-
-\bibitem{Smetanin2020}
-N. Smetanin, A. Belinskaya, M. Lebedev, and A. Ossadtchi. Digital filters for low-latency quantification of brain rhythms in real time. \textit{Journal of Neural Engineering} 17, 046022 (2020). \href{https://doi.org/10.1088/1741-2552/ab890f}{https://doi.org/10.1088/1741-2552/ab890f}
-
-\end{thebibliography}
+\bibliographystyle{iopart-num}
+\bibliography{references}
 
 \end{document}
