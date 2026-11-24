@@ -118,6 +118,24 @@ Consequences:
 `'buffered'`. On 60 s of sub-01 the buffered HG envelope correlates 0.92 (median over channels, log scale) with the offline Verwoert envelope at zero lag.
 Streaming IIR log power correlates 0.72, with a ~7–10 ms delay in the high-gamma band.
 
+#### Sub-01: decoding with each bandpass definition (PLS, 8 components; preliminary, one participant)
+| bandpass definition | causal features? | HG, ±200 ms context | HG, past-only context | HG+LP, ±200 ms | HG+LP, past-only |
+|---|---|---|---|---|---|
+| Verwoert (zero-phase IIR, whole recording) | no | 0.591 | **0.684** | 0.726 | **0.728** |
+| buffered (zero-phase IIR on 400 ms buffer) | **yes** | 0.590 | 0.679 | 0.700 | 0.714 |
+| streaming IIR, log power (Angrick 2021) | **yes** | 0.610 | 0.679 | — | — |
+| FIR, causal (draft) | no (Hilbert/notch) | 0.673 | 0.660 | 0.725 | 0.672 |
+| FIR, delay-compensated | no | 0.580 | 0.673 | 0.725 | 0.725 |
+
+* For HG, **past-only context beats ±200 ms by 0.07–0.09 for every zero/low-delay definition**. Activity 200–400 ms before an audio frame
+  carries more information than activity after it, as expected for speech production. The draft FIR only did well with ±200 ms
+  because its 199 ms delay turned the context into a past window.
+* **Causal estimation costs little for HG:** buffered and streaming IIR with past-only context (0.679) are within 0.005 of offline Verwoert (0.684).
+* **For low-frequency features the buffer edge costs more:** HG+LP buffered 0.714 versus 0.728 offline (past-only). A 400 ms buffer is short for <20 Hz phase
+  at its edge. This is exactly where SSR's model-based phase should help, so the comparison is informative.
+* Proposal for the full analysis: causal baseline = **buffered** (or streaming IIR for HG) **with past-only context**; offline reference =
+  **Verwoert** (past-only, plus ±200 ms to connect with the original framework); SSR with the same contexts.
+
 ### How to make the two frameworks comparable (implemented in `run_comparisons.py`)
 1. **Symmetric ladders.** Each SSR feature set gets a bandpass counterpart that differs in one factor (paper Table 1):
    `HG_LPamp` (mirrors amplitude-only SSR, which also has LF amplitudes), `HG_LP` (mirrors +phase), `HG_LP_PAC`
