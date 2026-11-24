@@ -107,7 +107,21 @@ IIR filter `H_j(e^{iω}) = c_jᵀ (I − A e^{−iω})⁻¹ K` applied to the ch
 | analytic signal | Hilbert transform of the whole recording (non-causal) | the state itself (causal) |
 | LF features | 0–20 Hz low-pass, 199 ms delay, one broadband "phase" | separate oscillators (e.g. 2.6, 16.2 Hz), 30–40 ms delay |
 
-Sub-01, all channels (`compare_filters.py`): PENDING
+All participants (`compare_filters.py`, notched SOMATA, outputs in `results/filters/`; `--aggregate` for the summary):
+
+| | SSR HG oscillators (n = 1625) | SSR LF oscillators < 20 Hz (n = 2298) | Butterworth 70–170 Hz, causal | draft FIR |
+|---|---|---|---|---|
+| −3 dB bandwidth | median 56.5 Hz [IQR 30.6–82.0] (sub-01 narrowest: 21.7) | median 9.3 Hz [4.5–18.4] | 100 Hz | 100 Hz |
+| group delay | median 6.2 ms [4.5–11.4], 95th pct 18.6, max 28.8 | median 47.8 ms [29.1–104.4]; 22 oscillators < 3 Hz above 500 ms | 7.6–19.4 ms (7.7 at 120 Hz) | 199 ms |
+
+* Lagged correlation SSR-HG amplitude vs bandpass HG envelope (mean over HG oscillators, then over participants): offline Verwoert
+  r(0) = 0.61 (0.39–0.80), peak at 0 or −10 ms; buffered causal r(0) = 0.59, peak at 0 or −10 ms; draft causal FIR r(0) = 0.11, peak at +190/+200 ms.
+* Stop band: SSR oscillators leak. Sub-01 HG oscillators keep a median 17 % of peak gain at 250–500 Hz (1.3 % below 20 Hz); the
+  Butterworth is > 29 dB down there. Stated in the paper as a property of the filters, low impact given the 1/f spectrum.
+* Streaming steady-state update of all channels: 0.05–0.13 ms per 10 ms frame (p95 0.07–0.21 ms), one core, 2.1 GHz Xeon.
+* 20 of 5578 oscillators (all < 1.1 Hz, mostly sub-06 and sub-09) have SOMATA damping marginally above 1 (≤ 1.0002), i.e. a slightly
+  explosive drift component. The steady-state filters are all stable (max |eig(A)| = 0.9995 over all channels), so features stay bounded;
+  worth constraining damping < 1 in SOMATA in a later version.
 
 Consequences:
 * The causal bandpass features **lag the SSR features by ~180–200 ms**. With the ±200 ms context, the decoder sees bandpass
@@ -119,7 +133,7 @@ Consequences:
 * The SSR and bandpass "phase" features measure different things. The bandpass phase is the Hilbert phase of a 0–20 Hz broadband signal; together with
   the LP amplitude it largely encodes the low-frequency voltage itself (A·cos φ is the low-passed signal; cf. LMP, Schalk 2007).
 * **PAC as implemented is almost a copy of HG amplitude.** Within 50 ms the phase of a <20 Hz oscillator barely moves, so
-  |mean(A_HG e^{iφ})| ≈ mean(A_HG)·|mean(e^{iφ})| ≈ mean(A_HG). Sub-01: PENDING. This explains the tiny PAC gain.
+  |mean(A_HG e^{iφ})| ≈ mean(A_HG)·|mean(e^{iφ})| ≈ mean(A_HG). All participants: corr(PAC feature, HG amplitude feature) median 0.83 (participant medians 0.70–0.93; < 8 Hz: 0.89). This explains the tiny PAC gain.
   The phase-resolved variant (Re/Im of the same complex mean = A_HG cos φ, A_HG sin φ) carries the amplitude–phase interaction
   that a linear decoder cannot construct; it is implemented as `pac_mode='complex'`.
 
