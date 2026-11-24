@@ -201,6 +201,7 @@ def main():
         print(f'=== reconstruct {n} ({"past-only" if causal else "+-200 ms"}) -> {prefix}', flush=True)
         reconstruct(args.pts, model='PLS', n_comp=n_comp, feat_suffix=FEATURE_SETS[n][0] + '.npy',
                     unstacked=True, saveAs=prefix, causal_stack=causal, inner_folds=args.inner_folds)
+    print(f'PLAN_DONE ({len(items)} items, part {args.part})', flush=True)
 
 
 if __name__ == '__main__':
