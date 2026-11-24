@@ -73,7 +73,7 @@ def select_n_comp_pls(X, Y, grid, inner_folds=5):
     grid = sorted(int(g) for g in grid)
     scores = np.zeros((inner_folds, len(grid)))
     for i, (tr, te) in enumerate(KFold(inner_folds, shuffle=False).split(X)):
-        pls = PLSRegression(n_components=max(grid), max_iter=1000).fit(X[tr], Y[tr])
+        pls = PLSRegression(n_components=max(grid), max_iter=1000, copy=False).fit(X[tr], Y[tr])
         for j, k in enumerate(grid):
             scores[i, j] = _mean_corr(Y[te], _pls_predict_k(pls, X[te], k))
     curve = scores.mean(axis=0)
@@ -151,7 +151,8 @@ def reconstruct(pts, model = 'PLS', n_comp = 9, feat_suffix='_feat.npy', unstack
     nested = isinstance(n_comp, (list, tuple, np.ndarray))
     chosen_n_comp = np.zeros((len(pts), nfolds), dtype=int)
     if model == 'PLS': 
-        est = PLSRegression(n_components=(max(n_comp) if nested else n_comp), max_iter=1000)
+        # copy=False: PLS centres/scales the (temporary) training matrix in place instead of copying it
+        est = PLSRegression(n_components=(max(n_comp) if nested else n_comp), max_iter=1000, copy=False)
     elif model == 'LR':
         est = LinearRegression(n_jobs=1)
     elif model == 'Lasso':
@@ -207,11 +208,16 @@ def reconstruct(pts, model = 'PLS', n_comp = 9, feat_suffix='_feat.npy', unstack
             std=np.std(data[train,:],axis=0)
             std[std == 0] = 1.0  # Prevent division by zero
 
-            trainData=(data[train,:]-mu)/std
-            testData=(data[test,:]-mu)/std
+            # (in place, to avoid extra copies of the large stacked feature matrix; same values as (x-mu)/std)
+            trainData = data[train,:]
+            trainData -= mu
+            trainData /= std
+            testData = data[test,:]
+            testData -= mu
+            testData /= std
 
             # Convert all NaNs to 0.0 before passing to PCA
-            trainData = np.nan_to_num(trainData, nan=0.0)
+            trainData = np.nan_to_num(trainData, nan=0.0, copy=False)
 
             ''''
             #Fit PCA to training data
@@ -227,9 +233,10 @@ def reconstruct(pts, model = 'PLS', n_comp = 9, feat_suffix='_feat.npy', unstack
             if nested and model == 'PLS':
                 best_k, _ = select_n_comp_pls(trainData, spectrogram[train, :], n_comp, inner_folds)
                 chosen_n_comp[pNr, k] = best_k
-                est = PLSRegression(n_components=best_k, max_iter=1000)
+                est = PLSRegression(n_components=best_k, max_iter=1000, copy=False)
     
             est.fit(trainData, spectrogram[train, :])
+            del trainData
             #Predict the reconstructed spectrogram for the test data
             rec_spec[test, :] = est.predict(testData)
 
