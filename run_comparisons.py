@@ -94,14 +94,16 @@ FEATURE_SETS = {
 # offline reference = Verwoert bandpass; SSR in both contexts; PLS components selected by nested CV.
 MAIN_PLAN = [
     # causal (past-only context)
-    ('HG_buf', True), ('HG_LPamp_buf', True), ('HG_LP_buf', True), ('HG_LP_PAC_buf', True), ('HG_LP_PACc_buf', True),
-    ('SSR_amp', True), ('SSR_phase', True), ('SSR_pac', True), ('SSR_pacc', True),
+    ('HG_buf', True), ('HG_LPamp_buf', True), ('HG_LP_buf', True), ('HG_LP_PAC_buf', True),
+    ('SSR_amp', True), ('SSR_phase', True), ('SSR_pac', True),
     ('BPm_amp_buf', True), ('BPm_phase_buf', True), ('BPm_pac_buf', True),
     # offline reference (Verwoert), past-only and +-200 ms
     ('HG_vw', True), ('HG_LP_vw', True), ('HG_LP_PAC_vw', True),
     ('HG_vw', False), ('HG_LP_vw', False), ('HG_LP_PAC_vw', False),
     # SSR with the original +-200 ms context
     ('SSR_amp', False), ('SSR_phase', False), ('SSR_pac', False),
+    # phase-resolved PAC last: the largest feature sets (peak memory ~14 GB for SSR_pacc)
+    ('HG_LP_PACc_buf', True), ('SSR_pacc', True),
 ]
 
 # Contrasts that make the two frameworks symmetric (a - b)
