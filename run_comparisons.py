@@ -82,7 +82,27 @@ FEATURE_SETS = {
     'BPm_amp_dc':  ('_bpm_amp_dc',           'bpm', dict(include_phase=False, include_pac=False, timing='delay_compensated'), None),
     'BPm_phase_dc': ('_bpm_phase_dc',        'bpm', dict(include_phase=True, include_pac=False, timing='delay_compensated'), None),
     'BPm_pac_dc':  ('_bpm_pac_dc',           'bpm', dict(include_phase=True, include_pac=True, timing='delay_compensated'), None),
+    # --- main analysis (agreed set-up): IIR estimators, 70-170 Hz HG, <20 Hz LP ---
+    'HG_LPamp_buf': ('_bp_hg_lpamp_buf',     'hg',  dict(low_pass=True, lp_phase=False, timing='buffered'), None),
+    'HG_LP_PACc_buf': ('_bp_hg_lp_pacc_buf', 'hg',  dict(low_pass=True, include_pac=True, pac_mode='complex', timing='buffered'), None),
+    'BPm_amp_buf': ('_bpm_amp_buf',          'bpm', dict(include_phase=False, include_pac=False, timing='buffered'), None),
+    'BPm_phase_buf': ('_bpm_phase_buf',      'bpm', dict(include_phase=True, include_pac=False, timing='buffered'), None),
+    'BPm_pac_buf': ('_bpm_pac_buf',          'bpm', dict(include_phase=True, include_pac=True, timing='buffered'), None),
 }
+
+# Main analysis plan: (feature set, past-only context?). Causal baseline = buffered bandpass with past-only context;
+# offline reference = Verwoert bandpass; SSR in both contexts; PLS components selected by nested CV.
+MAIN_PLAN = [
+    # causal (past-only context)
+    ('HG_buf', True), ('HG_LPamp_buf', True), ('HG_LP_buf', True), ('HG_LP_PAC_buf', True), ('HG_LP_PACc_buf', True),
+    ('SSR_amp', True), ('SSR_phase', True), ('SSR_pac', True), ('SSR_pacc', True),
+    ('BPm_amp_buf', True), ('BPm_phase_buf', True), ('BPm_pac_buf', True),
+    # offline reference (Verwoert), past-only and +-200 ms
+    ('HG_vw', True), ('HG_LP_vw', True), ('HG_LP_PAC_vw', True),
+    ('HG_vw', False), ('HG_LP_vw', False), ('HG_LP_PAC_vw', False),
+    # SSR with the original +-200 ms context
+    ('SSR_amp', False), ('SSR_phase', False), ('SSR_pac', False),
+]
 
 # Contrasts that make the two frameworks symmetric (a - b)
 MATCHED_CONTRASTS = [
@@ -140,9 +160,14 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--pts', nargs='+', default=ALL_PTS)
     ap.add_argument('--sets', nargs='+', default=['all'], help=f"any of {list(FEATURE_SETS)} or 'all'")
+    ap.add_argument('--plan', choices=['main'], default=None,
+                    help="run the agreed main analysis (MAIN_PLAN: feature sets x context); overrides --sets/--causal-stack")
+    ap.add_argument('--part', default='1/1', help="i/n: run only every n-th plan item starting at i (to split across machines)")
     ap.add_argument('--n-comp', default='nested',
-                    help="'nested' (inner-CV selection from 3..11, recommended), 'paper' "
-                         "(published values; 8 for new sets), or an integer used for every set")
+                    help="'nested' (inner-CV selection, recommended), 'paper' (published values; 8 for new sets), "
+                         "or an integer used for every set")
+    ap.add_argument('--nested-grid', nargs='+', type=int, default=[4, 6, 8, 10, 12])
+    ap.add_argument('--inner-folds', type=int, default=3)
     ap.add_argument('--causal-stack', action='store_true', help='stack only past context (no look-ahead)')
     ap.add_argument('--ssr-engine', default='steady_state', choices=['steady_state', 'kalman'])
     ap.add_argument('--n-jobs', type=int, default=4)
@@ -150,22 +175,32 @@ def main():
     ap.add_argument('--overwrite-features', action='store_true')
     args = ap.parse_args()
 
-    names = list(FEATURE_SETS) if args.sets == ['all'] else args.sets
+    if args.plan == 'main':
+        items = MAIN_PLAN
+    else:
+        names = list(FEATURE_SETS) if args.sets == ['all'] else args.sets
+        items = [(n, args.causal_stack) for n in names]
+    i, n_parts = (int(x) for x in args.part.split('/'))
+    items = items[i - 1::n_parts]
+    names = list(dict.fromkeys(n for n, _ in items))
     for pt in args.pts:
         ensure_features(pt, names, args.ssr_engine, args.n_jobs, args.overwrite_features)
     if args.extract_only:
         return
-    for n in names:
+    for n, causal in items:
         if args.n_comp == 'nested':
-            n_comp = list(range(3, 12))
+            n_comp = list(args.nested_grid)
         elif args.n_comp == 'paper':
             n_comp = FEATURE_SETS[n][3] or 8
         else:
             n_comp = int(args.n_comp)
-        prefix = result_prefix(n, n_comp, args.causal_stack)
-        print(f'=== reconstruct {n} -> {prefix}')
+        prefix = result_prefix(n, n_comp, causal)
+        if os.path.exists(os.path.join(os.environ.get('SSR_PATH_RESULT', './results'), prefix + 'linearResults.npy')):
+            print(f'=== {prefix} exists, skipping')
+            continue
+        print(f'=== reconstruct {n} ({"past-only" if causal else "+-200 ms"}) -> {prefix}', flush=True)
         reconstruct(args.pts, model='PLS', n_comp=n_comp, feat_suffix=FEATURE_SETS[n][0] + '.npy',
-                    unstacked=True, saveAs=prefix, causal_stack=args.causal_stack)
+                    unstacked=True, saveAs=prefix, causal_stack=causal, inner_folds=args.inner_folds)
 
 
 if __name__ == '__main__':

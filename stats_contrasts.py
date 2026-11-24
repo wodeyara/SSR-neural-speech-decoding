@@ -37,6 +37,36 @@ PAPER_CONTRASTS = [('HG_LP', 'HG'), ('SSR_amp', 'HG'), ('SSR_phase', 'SSR_amp'),
                    ('SSR_phase', 'HG_LP'), ('SSR_pac', 'SSR_phase'), ('SSR_pac', 'HG_LP')]
 
 
+def _m(name, past):
+    """Result prefix written by run_comparisons.py --plan main (nested n_comp)."""
+    return f"cmp_{name}{'_causal' if past else ''}_nested"
+
+
+# Main analysis (run_comparisons.py --plan main). Keys: 'SET@past' (past-only context) or 'SET@sym' (+-200 ms).
+# Contrasts are grouped into families; BH-FDR is applied within each family.
+MAIN_FAMILIES = {
+    'A. causal pipeline (past-only context): SSR vs buffered bandpass': [
+        ('HG_LP_buf@past', 'HG_buf@past'), ('SSR_amp@past', 'HG_buf@past'), ('SSR_amp@past', 'HG_LPamp_buf@past'),
+        ('SSR_phase@past', 'SSR_amp@past'), ('SSR_phase@past', 'HG_LP_buf@past'), ('SSR_pac@past', 'SSR_phase@past'),
+        ('SSR_pac@past', 'HG_LP_PAC_buf@past'), ('HG_LP_PAC_buf@past', 'HG_LP_buf@past')],
+    'B. estimator at matched frequencies (past-only)': [
+        ('SSR_amp@past', 'BPm_amp_buf@past'), ('SSR_phase@past', 'BPm_phase_buf@past'), ('SSR_pac@past', 'BPm_pac_buf@past')],
+    'C. causal SSR vs offline Verwoert bandpass (past-only) and cost of causal bandpass': [
+        ('SSR_amp@past', 'HG_vw@past'), ('SSR_phase@past', 'HG_LP_vw@past'), ('SSR_pac@past', 'HG_LP_PAC_vw@past'),
+        ('HG_buf@past', 'HG_vw@past'), ('HG_LP_buf@past', 'HG_LP_vw@past')],
+    'D. temporal context (past-only minus +-200 ms)': [
+        ('HG_vw@past', 'HG_vw@sym'), ('HG_LP_vw@past', 'HG_LP_vw@sym'), ('SSR_amp@past', 'SSR_amp@sym'),
+        ('SSR_phase@past', 'SSR_phase@sym'), ('SSR_pac@past', 'SSR_pac@sym')],
+    'E. phase-resolved PAC': [
+        ('SSR_pacc@past', 'SSR_pac@past'), ('HG_LP_PACc_buf@past', 'HG_LP_PAC_buf@past')],
+}
+
+
+def main_preset_models():
+    keys = {k for fam in MAIN_FAMILIES.values() for c in fam for k in c}
+    return {k: _m(k.split('@')[0], k.endswith('@past')) for k in keys}
+
+
 def fold_z(all_res):
     """(participants, folds, bins) r -> (participants, folds) bin-averaged Fisher z."""
     r = np.clip(np.asarray(all_res, float), -0.999999, 0.999999)
@@ -102,7 +132,34 @@ def main():
     ap.add_argument('--model', action='append', default=[], help='NAME=prefix')
     ap.add_argument('--contrast', action='append', default=[], help='A:B (tests A - B)')
     ap.add_argument('--csv', default=None, help='optional path to write the table as CSV')
+    ap.add_argument('--preset', choices=['paper', 'main'], default='paper',
+                    help="'paper': the six contrasts of the draft; 'main': contrast families of the main analysis")
     args = ap.parse_args()
+
+    if args.preset == 'main' and not args.model:
+        models = main_preset_models()
+        all_rows = []
+        for fam, contrasts in MAIN_FAMILIES.items():
+            needed = sorted({m for c in contrasts for m in c})
+            avail = {m: os.path.join(args.results, f'{models[m]}linearResults.npy') for m in needed}
+            missing = [m for m, f in avail.items() if not os.path.exists(f)]
+            if missing:
+                print(f'\n{fam}: missing results for {missing}, skipped')
+                continue
+            rows = run_contrasts({m: np.load(f) for m, f in avail.items()}, contrasts)
+            print(f'\n{fam}  (BH-FDR within family)')
+            print(format_table(rows))
+            for r in rows:
+                r['family'] = fam
+            all_rows += rows
+        if args.csv and all_rows:
+            import csv
+            with open(args.csv, 'w', newline='') as f:
+                w = csv.DictWriter(f, fieldnames=[k for k in all_rows[0] if k != 'delta_r_participants'])
+                w.writeheader()
+                for r in all_rows:
+                    w.writerow({k: v for k, v in r.items() if k != 'delta_r_participants'})
+        return
 
     models = dict(m.split('=', 1) for m in args.model) if args.model else PAPER_MODELS
     contrasts = [tuple(c.split(':', 1)) for c in args.contrast] if args.contrast else PAPER_CONTRASTS

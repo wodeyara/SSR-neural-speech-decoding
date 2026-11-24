@@ -208,7 +208,26 @@ def load_somata_results(participant):
     return {int(ch): {k: (np.asarray(v) if isinstance(v, list) else v) for k, v in r.items()} for ch, r in raw.items()}
 
 
-def get_initParams(participant):
+def drop_line_noise_oscillators(somata_results, tol_hz=2.0, harmonics=np.arange(50, 500, 50)):
+    """
+    Remove oscillators whose centre frequency lies within +-tol_hz of a line-noise harmonic.
+    Even after notching, SOMATA occasionally places an oscillator on residual line noise (e.g. 3 of 628 oscillators
+    near 100 Hz in sub-10). Returns the cleaned results and the number of oscillators removed. A channel left without a
+    high-gamma oscillator receives the participant template in get_initParams, as before.
+    """
+    out, n_dropped = {}, 0
+    for ch, r in somata_results.items():
+        f = np.atleast_1d(np.asarray(r['freqs'], dtype=float))
+        keep = np.min(np.abs(f[:, None] - harmonics[None, :]), axis=1) > tol_hz
+        n_dropped += int((~keep).sum())
+        r2 = dict(r)
+        for k in ('freqs', 'damping', 'sigma2'):
+            r2[k] = np.atleast_1d(np.asarray(r[k]))[keep]
+        out[ch] = r2
+    return out, n_dropped
+
+
+def get_initParams(participant, drop_line_noise=None):
     """
     Build initialization parameters for SSPE algorithm for all channels.
     
@@ -230,6 +249,12 @@ def get_initParams(participant):
         windowSize, lowFreqBand
     """
     somata_results = load_somata_results(participant)
+    if drop_line_noise is None:
+        drop_line_noise = not LEGACY_NOTCH   # published pipeline: no dropping
+    if drop_line_noise:
+        somata_results, n_dropped = drop_line_noise_oscillators(somata_results)
+        if n_dropped:
+            print(f"{participant}: dropped {n_dropped} oscillators within 2 Hz of a line-noise harmonic")
     template_freqs = build_density_template(somata_results)
     template_a, template_s = get_template_parameters(somata_results, template_freqs) 
     template_freqs = np.array(template_freqs)

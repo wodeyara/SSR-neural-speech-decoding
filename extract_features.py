@@ -452,33 +452,89 @@ def _matched_band(params, osc_idx, bandwidth, ssr_summary):
     return lo, hi
 
 
-def _bandpass_matched_channel(y, params, include_phase, include_pac, pac_mode, bandwidth, timing):
-    """Analytic signals of FIR bandpass filters centred on the channel's SSR oscillators."""
+def _segment_oscillator_features(zseg, freqs, include_phase=True, include_pac=True, pac_mode='mvl'):
+    """
+    Same features as _channel_oscillator_features, but from window-wise analytic signals
+    zseg (windows, samples_in_window, n_osc), e.g. buffer-wise (causal) estimates.
+    """
+    freqs = np.asarray(freqs, dtype=float)
+    amp = np.abs(zseg)
+    unit = np.exp(1j * np.angle(zseg))
+    hg = None
+    if include_pac:
+        hg = next((i for i, f in enumerate(freqs) if HG_RANGE[0] < f < HG_RANGE[1]), None)
+        assert hg is not None, "Channel appears to have no HG oscillator"
+    cols = []
+    for k, f in enumerate(freqs):
+        cols.append(amp[:, :, k].mean(axis=1))
+        if f < LOW_FREQ_THRESHOLD:
+            if include_phase:
+                cm = unit[:, :, k].mean(axis=1)
+                cols += [np.imag(cm), np.real(cm)]
+            if include_pac:
+                pz = (amp[:, :, hg] * unit[:, :, k]).mean(axis=1)
+                if pac_mode == 'mvl':
+                    cols.append(np.abs(pz))
+                elif pac_mode == 'complex':
+                    cols += [np.real(pz), np.imag(pz)]
+                else:
+                    raise ValueError(f"unknown pac_mode {pac_mode}")
+    return np.column_stack(cols)
+
+
+def _iir_band_sos(lo, hi, order=4):
+    """4th-order Butterworth band-pass (low-pass if the band reaches ~DC), as in Verwoert et al."""
+    if lo < 1.0:
+        return scipy.signal.iirfilter(order, hi / (sr / 2), btype='lowpass', output='sos')
+    return scipy.signal.iirfilter(order, [lo / (sr / 2), hi / (sr / 2)], btype='bandpass', output='sos')
+
+
+def _buffered_analytic_1d(y, sos, stops, L, n_buf, chunk=2048):
+    """Buffer-wise zero-phase filtering + Hilbert of a 1-D signal; returns (windows, L) analytic values."""
+    out = np.zeros((len(stops), L), dtype=complex)
+    ok = np.where(stops >= n_buf)[0]
+    win = np.lib.stride_tricks.sliding_window_view(y, n_buf)
+    for c in range(0, len(ok), chunk):
+        idx = ok[c:c + chunk]
+        seg = scipy.signal.sosfiltfilt(sos, win[stops[idx] - n_buf], axis=1)
+        out[idx] = scipy.signal.hilbert(seg, axis=1)[:, -L:]
+    out[stops < n_buf] = out[ok[0]]   # first 0.4 s (inside the discarded 10 s): copy first full window
+    return out
+
+
+def _bandpass_matched_channel(y, params, include_phase, include_pac, pac_mode, bandwidth, timing, buffer_ms=400):
+    """Analytic signals of bandpass filters centred on the channel's SSR oscillators."""
     ssr_summary = None
     if bandwidth == 'ssr':
         import ssr_filter
         f_max = min(sr / 2 - 1, 1.5 * max(params['freqs']) + 40)
         ssr_summary = ssr_filter.summarize_oscillator_filters(params, f_max=f_max, df=0.1)
-    n_taps = _fir_taps()
+    bands = [_matched_band(params, k, bandwidth, ssr_summary) for k in range(len(params['freqs']))]
+    if timing == 'buffered':
+        starts, stops = _window_bounds(len(y))
+        L = int(stops[0] - starts[0])
+        n_buf = int(round(buffer_ms / 1000 * sr))
+        zseg = np.stack([_buffered_analytic_1d(y, _iir_band_sos(lo, hi), stops, L, n_buf) for lo, hi in bands], axis=2)
+        return _segment_oscillator_features(zseg, params['freqs'], include_phase, include_pac, pac_mode), bands
     z = np.zeros((len(y), len(params['freqs'])), dtype=complex)
-    bands = []
-    for k in range(len(params['freqs'])):
-        lo, hi = _matched_band(params, k, bandwidth, ssr_summary)
-        if lo < 1.0:   # band reaching (close to) DC: low-pass
-            b = scipy.signal.firwin(n_taps, hi / (sr / 2), pass_zero='lowpass', window='hamming')
+    for k, (lo, hi) in enumerate(bands):
+        if timing == 'verwoert':
+            z[:, k] = scipy.signal.hilbert(scipy.signal.sosfiltfilt(_iir_band_sos(lo, hi), y))
         else:
-            b = scipy.signal.firwin(n_taps, [lo / (sr / 2), hi / (sr / 2)], pass_zero=False, window='hamming')
-        z[:, k] = scipy.signal.hilbert(_apply_fir(b, y, timing))
-        bands.append((lo, hi))
+            n_taps = _fir_taps()
+            if lo < 1.0:   # band reaching (close to) DC: low-pass
+                b = scipy.signal.firwin(n_taps, hi / (sr / 2), pass_zero='lowpass', window='hamming')
+            else:
+                b = scipy.signal.firwin(n_taps, [lo / (sr / 2), hi / (sr / 2)], pass_zero=False, window='hamming')
+            z[:, k] = scipy.signal.hilbert(_apply_fir(b, y, timing))
     return _channel_oscillator_features(z, params['freqs'], include_phase, include_pac, pac_mode), bands
 
 
 def extractBandpassMatched(data, initParams_list, include_phase=True, include_pac=True, pac_mode='mvl',
                            bandwidth='ssr', timing='causal', n_jobs=4, return_bands=False):
     """
-    Bandpass counterpart of extractSSPE: for every SSR oscillator of every channel, an FIR
-    bandpass (same 409-tap Hamming design as extractHG) + Hilbert transform is used instead of
-    the Kalman filter. Same preprocessing, same oscillator frequencies, same feature layout and
+    Bandpass counterpart of extractSSPE: for every SSR oscillator of every channel, a bandpass
+    filter + Hilbert transform is used instead of the Kalman filter. Same preprocessing, same oscillator frequencies, same feature layout and
     feature definitions as extractSSPE, so the ONLY difference between the two feature sets is
     how the analytic signal of each oscillator is estimated.
 
@@ -488,8 +544,10 @@ def extractBandpassMatched(data, initParams_list, include_phase=True, include_pa
         'ssr': use the -3 dB passband of the steady-state SSR filter of each oscillator
         (ssr_filter.summarize_oscillator_filters), i.e. match centre frequency AND bandwidth.
         float: fixed bandwidth in Hz centred on the oscillator frequency.
-    timing : {'causal', 'delay_compensated'}
-        See extractHG.
+    timing : {'buffered', 'verwoert', 'causal', 'delay_compensated'}
+        'buffered' / 'verwoert': 4th-order Butterworth IIR at the matched band, applied forward-backward on the
+        400 ms buffer ending at each window (causal) or on the whole recording (offline); see extractHG.
+        'causal' / 'delay_compensated': 409-tap FIR as in the draft.
     """
     data = _ssr_preprocess(data)
     n_channels = data.shape[1]
