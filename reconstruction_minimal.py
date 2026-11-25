@@ -48,7 +48,40 @@ def createAudio(spectrogram, audiosr=16000, winLength=0.05, frameshift=0.01):
     return scaled
 
 
-def reconstruct(pts, model = 'PLS', n_comp = 9, feat_suffix='_feat.npy', unstacked =False, saveAs=None, synthesize=False):
+def _pls_predict_k(pls, X, k):
+    """
+    Predict with only the first k components of a fitted PLSRegression.
+    NIPALS extracts components sequentially (with deflation), so the first k components of a
+    model fitted with n_components >= k are identical to those of a k-component model.
+    """
+    Xs = (X - pls._x_mean) / pls._x_std
+    coef = (pls.x_rotations_[:, :k] @ pls.y_loadings_[:, :k].T) * pls._y_std
+    return Xs @ coef + pls._y_mean
+
+
+def _mean_corr(Y, Yhat):
+    Y = Y - Y.mean(axis=0); Yhat = Yhat - Yhat.mean(axis=0)
+    r = np.sum(Y * Yhat, axis=0) / np.sqrt(np.sum(Y**2, axis=0) * np.sum(Yhat**2, axis=0))
+    return np.nanmean(r)
+
+
+def select_n_comp_pls(X, Y, grid, inner_folds=5):
+    """
+    Nested selection of the number of PLS components using contiguous (non-shuffled) inner
+    folds of the TRAINING data only. Returns the best n_components and the inner-CV score curve.
+    """
+    grid = sorted(int(g) for g in grid)
+    scores = np.zeros((inner_folds, len(grid)))
+    for i, (tr, te) in enumerate(KFold(inner_folds, shuffle=False).split(X)):
+        pls = PLSRegression(n_components=max(grid), max_iter=1000, copy=False).fit(X[tr], Y[tr])
+        for j, k in enumerate(grid):
+            scores[i, j] = _mean_corr(Y[te], _pls_predict_k(pls, X[te], k))
+    curve = scores.mean(axis=0)
+    return grid[int(np.argmax(curve))], curve
+
+
+def reconstruct(pts, model = 'PLS', n_comp = 9, feat_suffix='_feat.npy', unstacked =False, saveAs=None, synthesize=False,
+                causal_stack=False, inner_folds=5):
     """
     Reconstruct mel spectrograms from neural features using regression models.
     
@@ -63,12 +96,23 @@ def reconstruct(pts, model = 'PLS', n_comp = 9, feat_suffix='_feat.npy', unstack
         List of participant identifiers. If None, uses all 10 participants.
     model : str, optional
         Regression model to use: 'PLS', 'LR', or 'Lasso'. Default is 'PLS'.
-    n_comp : int, optional
-        Number of components for PLS regression. 9 was optimal for SSPE, 5 was optimal for bandpass features.Default is 9.
+    n_comp : int or list of int, optional
+        Number of components for PLS regression. Default is 9.
+        The paper uses 6 (HG bandpass), 9 (HG + LP bandpass) and 8 (all SSR feature sets),
+        selected on the outer test folds (not nested).
+        If a list/tuple of ints is given, the number of components is selected separately
+        in every outer fold by an inner contiguous cross-validation on the training data
+        only (nested CV); the chosen values are saved as {saveAs}nComp.npy.
     feat_suffix : str, optional
         Suffix for feature files. Default is '_feat.npy'.
     unstacked : bool, optional
-        If True, apply feature stacking. Default is False.
+        If True, the saved features are unstacked and temporal context is stacked here,
+        after dropping the initialisation segment. Default is False.
+    causal_stack : bool, optional
+        Only with unstacked=True. If True, stack only past context frames (0 to -400 ms)
+        instead of +-200 ms, so the decoder does not use future neural data.
+    inner_folds : int, optional
+        Number of inner folds for nested selection of n_comp (if n_comp is a list).
     saveAs : str or None, optional
         Prefix for saving results. If None or 'dont', returns results without saving.
     synthesize : bool, optional
@@ -87,8 +131,8 @@ def reconstruct(pts, model = 'PLS', n_comp = 9, feat_suffix='_feat.npy', unstack
     - feat_path: Path to feature files
     - result_path: Path to save results
     """
-    feat_path = r'./features'
-    result_path = r'./results'
+    feat_path = os.environ.get('SSR_PATH_FEATURES', r'./features')
+    result_path = os.environ.get('SSR_PATH_RESULT', r'./results')
     if pts == None:
         pts = ['sub-01', 'sub-02', 'sub-03', 'sub-04', 'sub-05','sub-06','sub-07', 'sub-08', 'sub-09', 'sub-10']
 
@@ -104,8 +148,11 @@ def reconstruct(pts, model = 'PLS', n_comp = 9, feat_suffix='_feat.npy', unstack
     frames_to_drop = int(seconds_to_drop / frameshift)
 
     #pca = PCA()
+    nested = isinstance(n_comp, (list, tuple, np.ndarray))
+    chosen_n_comp = np.zeros((len(pts), nfolds), dtype=int)
     if model == 'PLS': 
-        est = PLSRegression(n_components=n_comp, max_iter=1000)
+        # copy=False: PLS centres/scales the (temporary) training matrix in place instead of copying it
+        est = PLSRegression(n_components=(max(n_comp) if nested else n_comp), max_iter=1000, copy=False)
     elif model == 'LR':
         est = LinearRegression(n_jobs=1)
     elif model == 'Lasso':
@@ -129,7 +176,7 @@ def reconstruct(pts, model = 'PLS', n_comp = 9, feat_suffix='_feat.npy', unstack
         data = data[frames_to_drop:, :] #this works now because i know we have unstacked data, else, change
 
         if unstacked:
-            data = stackFeatures(data)
+            data = stackFeatures(data, causal=causal_stack)
     
         #Check for NaNs or Infinities
         nan_count = np.isnan(data).sum()
@@ -142,6 +189,12 @@ def reconstruct(pts, model = 'PLS', n_comp = 9, feat_suffix='_feat.npy', unstack
 
         spectrogram = np.load(os.path.join(feat_path,f'{pt}_spec.npy'))
         spectrogram = spectrogram[frames_to_drop:, :]
+        #adjust length (differences might occur due to rounding in the number of windows)
+        if spectrogram.shape[0] != data.shape[0]:
+            tLen = min(spectrogram.shape[0], data.shape[0])
+            print(f'{pt}: cropping features {data.shape[0]} and spectrogram {spectrogram.shape[0]} to {tLen} frames')
+            spectrogram = spectrogram[:tLen, :]
+            data = data[:tLen, :]
         #labels = np.load(os.path.join(feat_path,f'{pt}_procWords.npy'))
         #featName = np.load(os.path.join(feat_path,f'{pt}_feat_names.npy'))
         
@@ -155,11 +208,16 @@ def reconstruct(pts, model = 'PLS', n_comp = 9, feat_suffix='_feat.npy', unstack
             std=np.std(data[train,:],axis=0)
             std[std == 0] = 1.0  # Prevent division by zero
 
-            trainData=(data[train,:]-mu)/std
-            testData=(data[test,:]-mu)/std
+            # (in place, to avoid extra copies of the large stacked feature matrix; same values as (x-mu)/std)
+            trainData = data[train,:]
+            trainData -= mu
+            trainData /= std
+            testData = data[test,:]
+            testData -= mu
+            testData /= std
 
             # Convert all NaNs to 0.0 before passing to PCA
-            trainData = np.nan_to_num(trainData, nan=0.0)
+            trainData = np.nan_to_num(trainData, nan=0.0, copy=False)
 
             ''''
             #Fit PCA to training data
@@ -172,8 +230,13 @@ def reconstruct(pts, model = 'PLS', n_comp = 9, feat_suffix='_feat.npy', unstack
             '''
 
             #Fit the regression model
+            if nested and model == 'PLS':
+                best_k, _ = select_n_comp_pls(trainData, spectrogram[train, :], n_comp, inner_folds)
+                chosen_n_comp[pNr, k] = best_k
+                est = PLSRegression(n_components=best_k, max_iter=1000, copy=False)
     
             est.fit(trainData, spectrogram[train, :])
+            del trainData
             #Predict the reconstructed spectrogram for the test data
             rec_spec[test, :] = est.predict(testData)
 
@@ -236,6 +299,8 @@ def reconstruct(pts, model = 'PLS', n_comp = 9, feat_suffix='_feat.npy', unstack
         np.save(os.path.join(result_path, saveAs + 'randomResults.npy'),randomControl)
         np.save(os.path.join(result_path, saveAs + 'explainedVariance.npy'),explainedVariance)
         np.save(os.path.join(result_path, saveAs + 'est_coef.npy'), est.coef_)
+        if nested:
+            np.save(os.path.join(result_path, saveAs + 'nComp.npy'), chosen_n_comp)
     return allRes, est.coef_
 
 

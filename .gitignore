@@ -21,3 +21,17 @@ pls_hyperparameter_results/search_checkpoint.npz
 *.json
 *.npz
 *.png
+
+# Paper: keep figures, ignore LaTeX build products
+!paper/images/*.png
+paper/*.aux
+paper/*.log
+paper/*.bbl
+paper/*.blg
+paper/*.out
+paper/*.fls
+paper/*.fdb_latexmk
+paper/*.synctex.gz
+
+# SOMATA results (small JSON, committed so SOMATA does not have to be rerun); per-channel checkpoints are ignored
+!somata_results/*.json

@@ -36,9 +36,13 @@ stepSize = 5
 sr=1024
 pts = ['sub-01', 'sub-02', 'sub-03', 'sub-04', 'sub-05','sub-06','sub-07', 'sub-08', 'sub-09', 'sub-10']
 
-path_bids = '/Users/lisa/Documents/DSAI_year2/Marble/SingleWordProductionDutch/SingleWordProductionDutch-iBIDS'
-path_somata = '/Users/lisa/Documents/DSAI_year2/SingleWordProductionDutch-1/somata'
-path_result = '/Users/lisa/Documents/DSAI_year2/SingleWordProductionDutch-1/results'
+# Paths can be overridden with environment variables so the pipeline runs on other machines.
+path_bids = os.environ.get('SSR_PATH_BIDS', '/Users/lisa/Documents/DSAI_year2/Marble/SingleWordProductionDutch/SingleWordProductionDutch-iBIDS')
+_lisa_somata = '/Users/lisa/Documents/DSAI_year2/SingleWordProductionDutch-1/somata'
+# SOMATA results: SSR_PATH_SOMATA, else the original location if it exists, else ./somata_results in this repository
+path_somata = os.environ.get('SSR_PATH_SOMATA', _lisa_somata if os.path.isdir(_lisa_somata)
+                             else os.path.join(os.path.dirname(os.path.abspath(__file__)), 'somata_results'))
+path_result = os.environ.get('SSR_PATH_RESULT', '/Users/lisa/Documents/DSAI_year2/SingleWordProductionDutch-1/results')
 
 def run_pipeline():
     """
@@ -64,18 +68,24 @@ def run_pipeline():
     run_somata()
 
     #extract the features you want for each participant
+    #(features are saved UNSTACKED; reconstruct() drops the first 10 s and then stacks them.
+    # File names and n_comp values are those used for the paper.)
     for pt in pts:
+        extract_spectrogram(pt)
         initParams_list = get_initParams(pt)
-        run_extract_features(pt, initParams_list, SSPE=True, include_phase = True, include_pac = True, saveAs= '_pacSSPEfeat')
-        run_extract_features(pt, initParams_list, SSPE=True, include_phase = True, include_pac = False, saveAs= '_phaseSSPEfeat')
-        run_extract_features(pt, initParams_list, SSPE=True, include_phase = False, include_pac = False, saveAs= '_ampSSPEfeat')
-        run_extract_features(pt, None, SSPE=False, saveAs= '_bandpassfeat')
+        run_extract_features(pt, initParams_list, SSPE=True, include_phase = True, include_pac = True, saveAs= '_PCA_SSPEfeat')
+        run_extract_features(pt, initParams_list, SSPE=True, include_phase = True, include_pac = False, saveAs= '_PHASE_SSPEfeat')
+        run_extract_features(pt, initParams_list, SSPE=True, include_phase = False, include_pac = False, saveAs= '_onlyAMP_SSPEfeat')
+        run_extract_features(pt, None, SSPE=False, saveAs= '_final_bandpass_hg')
+        run_extract_features(pt, None, SSPE=False, low_pass=True, saveAs= '_final_bandpass_hg_lp')
 
-    #reconstruct with all feature sets
-    reconstruct(pts=None,  n_comp = 9, feat_suffix='_phaseSSPEfeat.npy', unstacked =True, saveAs='phase_sppe_cropped')
-    reconstruct(pts=None,  n_comp = 9, feat_suffix='_ampSSPEfeat.npy', unstacked =True, saveAs='only_AMP_sppe_cropped')
-    reconstruct(pts=None,  n_comp = 9, feat_suffix='_pacSSPEfeat.npy', unstacked =True, saveAs='PAC_sspe_cropped')
-    reconstruct(pts=None,  n_comp = 5, feat_suffix='_bandpassfeat.npy', unstacked =False, saveAs='CausalHG_cropped')
+    #reconstruct with all feature sets (PLS components as selected in report_figures.ipynb)
+    reconstruct(pts=None,  n_comp = 6, feat_suffix='_final_bandpass_hg.npy', unstacked =True, saveAs='res_final_bandpass_hg')
+    reconstruct(pts=None,  n_comp = 9, feat_suffix='_final_bandpass_hg_lp.npy', unstacked =True, saveAs='res_final_bandpass_hg_lp')
+    reconstruct(pts=None,  n_comp = 8, feat_suffix='_onlyAMP_SSPEfeat.npy', unstacked =True, saveAs='res_onlyAMP_SSPEfeat')
+    reconstruct(pts=None,  n_comp = 8, feat_suffix='_PHASE_SSPEfeat.npy', unstacked =True, saveAs='res_PHASE_SSPEfeat')
+    reconstruct(pts=None,  n_comp = 8, feat_suffix='_PCA_SSPEfeat.npy', unstacked =True, saveAs='res_PCA_SSPEfeat')
+    #matched bandpass comparisons and statistics: see run_comparisons.py and stats_contrasts.py
 
 
 def get_eeg(participant, t_start=0, t_segment = 10):
@@ -109,10 +119,9 @@ def get_eeg(participant, t_start=0, t_segment = 10):
     
     eeg = scipy.signal.detrend(eeg, axis=0)
     
-    #remove (harmonics of) line noise
-    for i in range (0,5):
-        sos = scipy.signal.iirfilter(4, [(i*100+49)/(sr/2),(i*100+51)/(sr/2)],btype='bandstop',output='sos')
-        eeg = scipy.signal.sosfiltfilt(sos,eeg,axis=0)
+    #remove (harmonics of) line noise. The published SOMATA fits used 50, 150, 250, 350 and 450 Hz only
+    #(no 100 Hz); see SOMATA_LINE_NOISE_HZ / SSR_LEGACY_NOTCH in extract_features.py
+    eeg = notch_line_noise(eeg, SOMATA_LINE_NOISE_HZ)
     return eeg
 
 
@@ -185,7 +194,40 @@ def run_somata():
         # Save
         np.save(os.path.join(path_somata, f'{participant}_somata_results.npy'), channel_results)
 
-def get_initParams(participant):
+def load_somata_results(participant):
+    """
+    Load the SOMATA results of a participant: {channel: {'freqs', 'damping', 'sigma2', 'obs_noise_R', ...}}.
+    Reads {participant}_somata_results.npy if present, otherwise the (committable) .json written by run_somata.py.
+    """
+    npy = os.path.join(path_somata, f'{participant}_somata_results.npy')
+    if os.path.exists(npy):
+        return np.load(npy, allow_pickle=True).item()
+    import json
+    with open(os.path.join(path_somata, f'{participant}_somata_results.json')) as f:
+        raw = json.load(f)['channels']
+    return {int(ch): {k: (np.asarray(v) if isinstance(v, list) else v) for k, v in r.items()} for ch, r in raw.items()}
+
+
+def drop_line_noise_oscillators(somata_results, tol_hz=2.0, harmonics=np.arange(50, 500, 50)):
+    """
+    Remove oscillators whose centre frequency lies within +-tol_hz of a line-noise harmonic.
+    Even after notching, SOMATA occasionally places an oscillator on residual line noise (e.g. 3 of 628 oscillators
+    near 100 Hz in sub-10). Returns the cleaned results and the number of oscillators removed. A channel left without a
+    high-gamma oscillator receives the participant template in get_initParams, as before.
+    """
+    out, n_dropped = {}, 0
+    for ch, r in somata_results.items():
+        f = np.atleast_1d(np.asarray(r['freqs'], dtype=float))
+        keep = np.min(np.abs(f[:, None] - harmonics[None, :]), axis=1) > tol_hz
+        n_dropped += int((~keep).sum())
+        r2 = dict(r)
+        for k in ('freqs', 'damping', 'sigma2'):
+            r2[k] = np.atleast_1d(np.asarray(r[k]))[keep]
+        out[ch] = r2
+    return out, n_dropped
+
+
+def get_initParams(participant, drop_line_noise=None):
     """
     Build initialization parameters for SSPE algorithm for all channels.
     
@@ -206,7 +248,13 @@ def get_initParams(participant):
         Each dict contains: freqs, Fs, ampVec, sigmaFreqs, sigmaObs,
         windowSize, lowFreqBand
     """
-    somata_results = np.load(os.path.join(path_somata,f'{participant}_somata_results.npy'),allow_pickle=True).item()
+    somata_results = load_somata_results(participant)
+    if drop_line_noise is None:
+        drop_line_noise = not LEGACY_NOTCH   # published pipeline: no dropping
+    if drop_line_noise:
+        somata_results, n_dropped = drop_line_noise_oscillators(somata_results)
+        if n_dropped:
+            print(f"{participant}: dropped {n_dropped} oscillators within 2 Hz of a line-noise harmonic")
     template_freqs = build_density_template(somata_results)
     template_a, template_s = get_template_parameters(somata_results, template_freqs) 
     template_freqs = np.array(template_freqs)
@@ -555,8 +603,10 @@ def highest_hg_mel_correlations(pt):
     eeg_sr = 1024
 
     feat_path = r'./features'
-    hg = extractHG(eeg,eeg_sr) #compute unstacked features
+    hg = extractHG(eeg) #compute unstacked features (previously extractHG(eeg, eeg_sr), which set low_pass=1024)
     melSpec = np.load(os.path.join(feat_path,f'{pt}_spec.npy'))
+    # _spec.npy is trimmed by modelOrder*stepSize windows at the start (aligned to stacked features)
+    hg = hg[modelOrder*stepSize:]
 
     # Reduce mel spectrogram to 1D speech envelope
     audio_ref = np.mean(melSpec, axis=1)
