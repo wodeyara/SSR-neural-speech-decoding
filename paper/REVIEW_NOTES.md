@@ -309,7 +309,8 @@ past-only window of the new analysis. Its SSR features (delay of a few ms) were 
   9/10); equals offline HG + LP (0.763). → the useful low-frequency information is the slow voltage.
 * Narrowband phase accuracy (reference: offline zero-phase matched bandpass at each SSR oscillator's band), sub-01:
   SSR 29° / 22° / 22° / 48° vs buffered matched bandpass 60° / 61° / 59° / 70° median error for 0–4 / 4–8 / 8–13 / 13–20 Hz.
-  All participants: see `results/lf_phase/` (filled in the paper).
+  All participants (2298 LF oscillators): SSR 27° vs bandpass 52° median error; SSR more accurate for 93 % of oscillators
+  (77–99 % per participant); by band 26/24/26/46° vs 50/51/52/68°. Files in `results/lf_phase/`.
 * Interpretation: SSR gives much better causal narrowband phase, but the linear spectrogram decoder uses the slow
   voltage, which both frameworks (and the LMP) provide; the 50 ms average is not what makes them equal.
 
