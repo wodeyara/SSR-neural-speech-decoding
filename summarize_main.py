@@ -21,6 +21,7 @@ ROWS = [
     ('HG + LP (amplitude + phase)', 'HG_LP_buf', 'past'),
     ('HG + LP + PAC', 'HG_LP_PAC_buf', 'past'),
     ('HG + LP + phase-resolved PAC', 'HG_LP_PACc_buf', 'past'),
+    ('HG + LP amplitude + LMP (post hoc)', 'HG_LPamp_LMP_buf', 'past'),
     ('Matched bandpass (buffered)', None, None),
     ('Amplitude', 'BPm_amp_buf', 'past'),
     ('Amplitude + phase', 'BPm_phase_buf', 'past'),

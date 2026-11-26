@@ -1,0 +1,46 @@
+stability HG_buf: group slope -0.00252 per fold; participant slopes mean -0.00252, t(9)=-1.30, p=0.226; fold means 0.716-0.762
+stability HG_LP_PAC_buf: group slope -0.00280 per fold; participant slopes mean -0.00280, t(9)=-2.00, p=0.076; fold means 0.722-0.770
+stability SSR_amp: group slope -0.00177 per fold; participant slopes mean -0.00177, t(9)=-1.36, p=0.207; fold means 0.684-0.746
+stability SSR_pac: group slope -0.00213 per fold; participant slopes mean -0.00213, t(9)=-1.63, p=0.138; fold means 0.721-0.775
+bp_corr sub-01: n=159 mean=0.771 median=0.798 >0.7: 81.1%
+bp_corr sub-02: n=173 mean=0.553 median=0.546 >0.7: 27.7%
+bp_corr sub-03: n=192 mean=0.569 median=0.563 >0.7: 28.6%
+bp_corr sub-04: n=163 mean=0.611 median=0.602 >0.7: 35.0%
+bp_corr sub-05: n=91 mean=0.635 median=0.625 >0.7: 36.3%
+bp_corr sub-06: n=230 mean=0.420 median=0.409 >0.7: 2.6%
+bp_corr sub-07: n=210 mean=0.771 median=0.776 >0.7: 77.1%
+bp_corr sub-08: n=76 mean=0.390 median=0.341 >0.7: 10.5%
+bp_corr sub-09: n=159 mean=0.795 median=0.808 >0.7: 83.6%
+bp_corr sub-10: n=172 mean=0.538 median=0.514 >0.7: 20.9%
+bp_corr all: n=1625 mean=0.610 median=0.634 >0.7: 41.0%; participant medians 0.341-0.808
+feat_audio sub-01: HG mean |r|=0.027 non-HG=0.030 d=-0.08 p=1.00e+00
+feat_audio sub-02: HG mean |r|=0.080 non-HG=0.041 d=0.87 p=2.94e-11
+feat_audio sub-03: HG mean |r|=0.086 non-HG=0.064 d=0.31 p=8.83e-03
+feat_audio sub-04: HG mean |r|=0.098 non-HG=0.049 d=0.74 p=3.04e-14
+feat_audio sub-05: HG mean |r|=0.109 non-HG=0.039 d=1.07 p=5.10e-12
+feat_audio sub-06: HG mean |r|=0.102 non-HG=0.066 d=0.54 p=3.01e-09
+feat_audio sub-07: HG mean |r|=0.133 non-HG=0.062 d=1.00 p=1.00e-20
+feat_audio sub-08: HG mean |r|=0.148 non-HG=0.054 d=1.66 p=1.19e-22
+feat_audio sub-09: HG mean |r|=0.224 non-HG=0.138 d=0.77 p=8.69e-09
+feat_audio sub-10: HG mean |r|=0.116 non-HG=0.053 d=1.10 p=2.25e-29
+pls_weights sub-01: n_comp=8 mean weight HG/other = 1.04
+pls_weights sub-02: n_comp=6 mean weight HG/other = 1.44
+pls_weights sub-03: n_comp=6 mean weight HG/other = 1.21
+pls_weights sub-04: n_comp=6 mean weight HG/other = 1.40
+pls_weights sub-05: n_comp=4 mean weight HG/other = 1.45
+pls_weights sub-06: n_comp=8 mean weight HG/other = 1.28
+pls_weights sub-07: n_comp=6 mean weight HG/other = 1.31
+pls_weights sub-08: n_comp=6 mean weight HG/other = 1.48
+pls_weights sub-09: n_comp=12 mean weight HG/other = 0.97
+pls_weights sub-10: n_comp=8 mean weight HG/other = 1.20
+error tracks sub-01: r=0.823; mean |error| bandpass 0.957, SSR 0.975; std ratio recon/recorded: bandpass 0.81, SSR 0.80
+error tracks sub-02: r=0.806; mean |error| bandpass 1.079, SSR 1.077; std ratio recon/recorded: bandpass 0.82, SSR 0.82
+error tracks sub-03: r=0.803; mean |error| bandpass 1.102, SSR 1.124; std ratio recon/recorded: bandpass 0.85, SSR 0.84
+error tracks sub-04: r=0.864; mean |error| bandpass 0.838, SSR 0.836; std ratio recon/recorded: bandpass 0.87, SSR 0.88
+error tracks sub-05: r=0.746; mean |error| bandpass 1.366, SSR 1.378; std ratio recon/recorded: bandpass 0.80, SSR 0.82
+error tracks sub-06: r=0.818; mean |error| bandpass 0.739, SSR 0.768; std ratio recon/recorded: bandpass 0.89, SSR 0.88
+error tracks sub-07: r=0.788; mean |error| bandpass 1.094, SSR 1.014; std ratio recon/recorded: bandpass 0.87, SSR 0.84
+error tracks sub-08: r=0.720; mean |error| bandpass 0.942, SSR 0.927; std ratio recon/recorded: bandpass 0.84, SSR 0.84
+error tracks sub-09: r=0.826; mean |error| bandpass 0.954, SSR 0.982; std ratio recon/recorded: bandpass 0.82, SSR 0.82
+error tracks sub-10: r=0.827; mean |error| bandpass 0.709, SSR 0.699; std ratio recon/recorded: bandpass 0.86, SSR 0.88
+error tracks: r = 0.72-0.86 (median 0.81)
