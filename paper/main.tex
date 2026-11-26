@@ -223,12 +223,12 @@ The original timing benchmarks of the per-sample Kalman filter were measured on 
 
 \subsection{State-space model validation}
 
-The SSR model was fit across all ten participants and their electrode channels. To assess whether the state-space models captured the intended spectral structure, we compared the raw power spectra with the distribution of tracked oscillator frequencies (figure~\ref{fig:model_fits}). The spectra followed the expected aperiodic $1/f$-like trend~\cite{Donoghue2020}, with high power at low frequencies and lower power at high frequencies. The fitted oscillator distributions included many low-frequency components as well as a distinct high-gamma cluster, most commonly between approximately 70 and 90\,Hz. Part of this cluster consists of template oscillators that were added to channels without a high-gamma component of their own (section~\ref{sec:parameters}), which explains the narrow peaks in participants with many template channels (e.g.\ around 75 and 125\,Hz in sub-06 and above 130\,Hz in sub-09). In sub-05, high-gamma oscillators clustered between 100 and 110\,Hz, close to the 100\,Hz line-noise harmonic, which was not removed in the version of the pipeline used for this figure. Line noise at 100\,Hz was prominent mainly in this participant (more than 3\,dB above neighbouring frequencies in 55 of 60 channels, versus at most 11 channels in any other participant), and the harmonic is now removed before initialization and SSR filtering \todo{regenerate this figure and the SSR results with the corrected notch}.
+The SSR model was fit across all ten participants and their electrode channels. To assess whether the state-space models captured the intended spectral structure, we compared the power spectra with the distribution of tracked oscillator frequencies (figure~\ref{fig:model_fits}). The spectra followed the expected aperiodic $1/f$-like trend~\cite{Donoghue2020}, with notches at the removed line-noise harmonics. SOMATA identified 5124 oscillators (after removing the 114 that lay within 2\,Hz of a line-noise harmonic), of which 38--57\% per participant lay below 20\,Hz and 1171 in the high-gamma range. In most participants the high-gamma oscillators clustered between about 75 and 95\,Hz (median over all participants 88\,Hz), but they lay higher in sub-05 (median 117\,Hz), sub-06 (112\,Hz) and sub-09 (139\,Hz). Template oscillators, added to the 21\% of channels without a high-gamma oscillator of their own, produce narrow peaks at the template frequencies, most visibly in sub-06 (72 and 110\,Hz), where 77\% of the channels received the template.
 
 \begin{figure}[!htb]
     \centering
     \includegraphics[width=\textwidth]{images/SSR_model_fits_all_subjects.png}
-    \caption{Distribution of tracked state-space oscillators versus power spectral density (PSD) across all channels and participants. The left axis shows the average power spectrum (black line; shaded region denotes $\pm$SEM across channels), and the right axis shows the number of tracked oscillator central frequencies in 10 Hz bins, including high-gamma template oscillators. Dips at 50 Hz and 150 Hz reflect line-noise removal; the 100\,Hz harmonic was not removed in this version of the pipeline (visible e.g.\ in sub-05).}
+    \caption{Distribution of tracked state-space oscillators versus power spectral density (PSD) across all channels and participants. The left axis shows the average power spectrum (black line; shaded region denotes $\pm$SEM across channels), and the right axis shows the number of oscillator centre frequencies in 5\,Hz bins, for oscillators identified by SOMATA (dark) and high-gamma template oscillators (light). The dips at 50, 100 and 150\,Hz reflect the line-noise notches.}
     \label{fig:model_fits}
 \end{figure}
 
@@ -244,7 +244,7 @@ Expressed as filters (section~\ref{sec:ssr_filters}), SSR oscillators had short 
     \label{fig:filters}
 \end{figure}
 
-A single-channel example suggested that SSR high-gamma amplitudes can resemble conventional high-gamma bandpass envelopes, whereas low-frequency oscillator amplitudes more closely track slower changes in the raw signal envelope (figure~\ref{fig:ssr_bandpass_validation}A). Across channels, the correlation between bandpass features and SSR high-gamma oscillator amplitudes varied by participant and oscillator (figure~\ref{fig:ssr_bandpass_validation}B). Some high-gamma SSR amplitudes were strongly aligned with the bandpass envelope, with subject-level medians reaching $r=0.765$ and approximately 70\% of high-gamma oscillators exceeding $r=0.70$ in participants 7 and 9. Across all participants, 30.3\% of the high-gamma oscillators exceeded $r=0.70$, and the mean correlation was $r=0.57$. This mixed alignment is expected because a state-space oscillator tracks a narrower, possibly shifted component within the broad high-gamma band. These correlations were computed with a non-causal bandpass filter; with the causal FIR filter used for decoding in an earlier version of this analysis, the unshifted correlation dropped to $r=0.10$ on average because of its 199\,ms delay (figure~\ref{fig:filters}C) \todo{regenerate panel B with the notched SOMATA models and the offline Verwoert envelope, extractHG(timing='verwoert'), and commit the code}.
+In a single-channel example, the amplitude of the high-gamma SSR oscillator closely followed the conventional high-gamma envelope ($r=0.90$ over the recording), whereas the amplitudes of the low-frequency oscillators of the same channel did not (figure~\ref{fig:ssr_bandpass_validation}A). Across channels, the zero-lag correlation between the amplitude of each high-gamma SSR oscillator and the offline bandpass envelope of its channel varied by participant (figure~\ref{fig:ssr_bandpass_validation}B): participant medians ranged from 0.34 (sub-08) to 0.81 (sub-09), and more than 75\% of the high-gamma oscillators exceeded $r=0.70$ in sub-01, sub-07 and sub-09. Over all 1625 high-gamma oscillators, the median correlation was 0.63 (mean 0.61), and 41\% exceeded 0.70. This mixed alignment is expected because a state-space oscillator tracks a narrower, possibly shifted component within the broad high-gamma band; the participants with the lowest correlations had many template oscillators (sub-06) or very broad high-gamma oscillators (median bandwidth 95\,Hz in sub-08). With the causal FIR filter of the earlier version of this analysis, the zero-lag correlation dropped to 0.11 on average because of the filter's 199\,ms delay (figure~\ref{fig:filters}C).
 
 \begin{figure}[!htb]
     \centering
@@ -252,7 +252,7 @@ A single-channel example suggested that SSR high-gamma amplitudes can resemble c
     \begin{subfigure}[b]{0.95\textwidth}
         \centering
         \includegraphics[width=\textwidth]{images/amp_feature_viz.png}
-        \caption{Example normalized time-series features.}
+        \caption{Example features.}
     \end{subfigure}
 
     \vspace{0.75em}
@@ -262,7 +262,7 @@ A single-channel example suggested that SSR high-gamma amplitudes can resemble c
         \includegraphics[width=\textwidth]{images/SSR_bandpass_correlation_grid.png}
         \caption{High-gamma SSR amplitude versus bandpass-envelope correlations.}
     \end{subfigure}
-    \caption{Validation of SSR features against conventional high-gamma bandpass features. Panel A shows raw iEEG envelope, high-gamma bandpass features, and SSR amplitude features for channel 1 of sub-07. Panel B shows the distribution of Pearson correlations between bandpass features and SSR high-gamma oscillator amplitudes across channels and participants. The HG bandpass features shown in both panels were computed with a non-causal (zero-phase) filter, so that the correlations reflect feature similarity rather than the 199\,ms delay of the causal FIR filter.}
+    \caption{Validation of SSR features against conventional high-gamma bandpass features. (A) Speech energy, broadband iEEG envelope and the amplitude of every SSR oscillator of sub-01, channel 6 (the channel whose high-gamma envelope correlated most with speech energy), each shown with the offline high-gamma bandpass envelope (grey); 5\,s excerpt, $z$-scored. (B) Distribution of the zero-lag Pearson correlations between the amplitude of each high-gamma SSR oscillator and the offline (zero-phase) high-gamma bandpass envelope of its channel; dashed lines mark participant medians.}
     \label{fig:ssr_bandpass_validation}
 \end{figure}
 
@@ -312,7 +312,7 @@ All feature sets reconstructed the spectrogram far above chance (mean chance cor
 
 \paragraph{Model selection.} Nested cross-validation selected a median of 4 to 10 PLS components, depending on the feature set (table~\ref{tab:main_results}). Across all feature sets and outer folds, the smallest value of the grid (4) was chosen in 13.6\% and the largest (12) in 7.3\% of cases; the high-gamma-only feature sets chose 4 components in half of the folds.
 
-Performance across consecutive validation folds is shown in appendix~\ref{app:tempstability}. Performance remained stable, indicating that the initialized oscillator parameters remained useful throughout the recordings, although longer recordings and online validation would be needed to assess parameter drift more rigorously \todo{the stability figure is from the earlier version of the analysis; regenerate with the causal results}.
+Accuracy varied across consecutive folds in the same way for SSR and bandpass features, with small negative trends of similar size for both (appendix~\ref{app:tempstability}), so that the oscillator parameters initialized on the first 10\,s remained as useful as the fixed bandpass filters throughout the recordings.
 
 \begin{figure}[!htb]
     \centering
@@ -461,31 +461,31 @@ Figure~\ref{fig:freq_cluster} shows the participant-level frequency templates us
 \begin{figure}[!htb]
     \centering
     \includegraphics[width=\linewidth]{images/SOMATA_density_templates_all_subjects.png}
-    \caption{Participant-level high-gamma frequency templates. Blue vertical lines indicate high-gamma frequencies found across channels. A Gaussian KDE smooths the distribution, and final template frequencies are selected with SciPy's \texttt{find\_peaks} algorithm.}
+    \caption{Participant-level high-gamma frequency templates. Ticks: high-gamma frequencies identified by SOMATA across channels; black line: Gaussian kernel density (bandwidth 2\,Hz); dashed lines: the two template frequencies selected with SciPy's \texttt{find\_peaks}. Titles give the number of channels that received the template because SOMATA found no high-gamma oscillator of their own}
     \label{fig:freq_cluster}
 \end{figure}
 
 \section{PLS hyperparameter optimization}
 \label{app:PLS_n_components}
 
-The number of PLS components was selected separately for each of the five models. HG bandpass features reached their highest validation performance at six components, HG with Low-Pass features reached their highest validation performance at nine components. All SSR feature sets performed best with eight components (figure~\ref{fig:opt_n_components}). Between 6 and 11 components, mean performance varied by less than 0.01 for every model; with fewer components, performance dropped most for the larger feature sets (e.g.\ HG + LP: $r=0.749$ with five and $r=0.719$ with three components).
+The number of PLS components was selected in every outer training fold by an inner, contiguous 3-fold cross-validation over 4, 6, 8, 10 and 12 components (section~\ref{sec:res_decoding}). Figure~\ref{fig:opt_n_components} shows how often each value was chosen. The high-gamma-only feature sets chose the smallest value in about half of the folds, and most other feature sets chose 6 or 8 components; the largest value was chosen in 7\% of all folds. In an earlier, non-nested version of the analysis, in which the number of components was chosen on the test folds, mean performance varied by less than 0.01 between 6 and 11 components for every model.
 
 \begin{figure}[!htb]
     \centering
 \includegraphics[width=\linewidth]{images/hyperparameter.png}
-    \caption{Hyperparameter search for the optimal number of components in the PLS decoder for different feature sets.}
+    \caption{Number of PLS components chosen by the inner cross-validation for each feature set with past-only context, as a percentage of the 100 outer folds (10 participants $\times$ 10 folds).}
     \label{fig:opt_n_components}
 \end{figure}
 
 \section{Temporal stability}
 \label{app:tempstability}
 
-SSR performance remained stable across consecutive validation folds (figure~\ref{fig:fold_stability}). The trend lines suggest that the gap between SSR and the bandpass baseline was not driven by a single late or early segment, and the bandpass baseline showed a similar small downward trend, indicating that the trend reflects the data rather than degradation of the SSR parameters. Because SSR parameters were initialized from the first 10 seconds only, this stability indicates that the fitted oscillator parameters remained useful over the later segments of the recording, although longer recordings and online validation would be needed to assess parameter drift more rigorously.
+Reconstruction accuracy varied across consecutive validation folds in the same way for all feature sets (figure~\ref{fig:fold_stability}): the seventh fold was the hardest for every model, and the SSR and bandpass trajectories ran in parallel. Linear trends were small and negative for all feature sets ($-0.002$ to $-0.003$ per fold; participant-level slopes did not differ from zero, $p\ge0.08$) and of similar size for SSR and bandpass features. The trend therefore reflects the data rather than a degradation of the SSR parameters, which were initialized on the first 10\,s only. Because the decoder was retrained in every fold on data from before and after the test segment, this is an indirect test of parameter drift; longer recordings and online validation are needed to assess drift more rigorously.
 
 \begin{figure}[!htb]
     \centering
     \includegraphics[width=0.80\linewidth]{images/fold_stability_trends_new.png}
-    \caption{Performance stability across validation folds. Each fold represents a consecutive segment of approximately 29\,s, with dashed lines indicating linear trends and their slopes.}
+    \caption{Reconstruction accuracy per validation fold (past-only context; mean over participants) for causal bandpass and SSR feature sets. Each fold is a consecutive segment of approximately 29\,s; the legend gives the slope of a linear fit.}
     \label{fig:fold_stability}
 \end{figure}
 
