@@ -281,11 +281,85 @@ Key contrasts (Δr, 95% CI over participants; p_FDR within family):
 What changed relative to the draft: the draft's SSR-vs-bandpass parity holds in the causal setting, but the draft's significant gains from LF
 features (p_FDR = 0.009) are not significant after FDR in the causal analysis (p_FDR = 0.16), and the PAC conclusions are now negative.
 
-## 7. Open TODOs (in order of importance)
-1. Figures still from the earlier (FIR, un-notched) version of the analysis, marked in red in the PDF: SSR model fits (Fig. 3), SSR-vs-bandpass
-   correlation (Fig. 5B), oscillator relevance / PLS weights, temporal stability (appendix), spectrogram examples and error-track correlations.
-   They come from `report_figures.ipynb` and need the new SOMATA models / predictions (`*_predicted_spec.npy`, not committed; rerun
-   `reconstruct(..., synthesize=False)` for the sets to plot).
-2. Optional: extend the PLS grid down to 2 components for the HG-only sets; Kalman-smoother (offline) SSR as the non-causal SSR reference.
+## 7. Why the old and new results look so similar
+The draft's bandpass features came from a 409-tap FIR filter applied causally (199 ms delay) and were stacked with
+±200 ms context, so the decoder saw bandpass activity from −400 to 0 ms relative to each audio frame — exactly the
+past-only window of the new analysis. Its SSR features (delay of a few ms) were stacked ±200 ms, i.e. −200…+200 ms.
+* Rerun of the draft's HG pipeline (`results/old_pipeline/`, FIR causal, ±200 ms, nested PLS) vs the new configurations:
+
+  | new configuration | mean r | mean \|Δ\| to old | max \|Δ\| | r across participants |
+  |---|---|---|---|---|
+  | offline (Verwoert) HG, past-only | 0.740 | 0.008 | 0.017 | 0.999 |
+  | buffered causal HG, past-only | 0.736 | 0.005 | 0.019 | 0.997 |
+  | offline HG, ±200 ms | 0.718 | 0.034 | 0.085 | 0.914 |
+
+  (old pipeline mean r = 0.732; published with fixed n_comp = 6: 0.728.)
+* Old SSR numbers (±200 ms; 0.719 / 0.763 / 0.765) ≈ new SSR with ±200 ms (0.724 / 0.765 / 0.765).
+* So the draft compared SSR(−200…+200 ms) with bandpass(−400…0 ms). The 199 ms delay looked dramatic in the lag
+  analysis (r ≈ 0.1 at zero lag) but a delay only shifts the neural window; it does not remove information, and the
+  temporal context has little effect on average (family D), so the old comparison still came out at parity.
+
+## 8. Low-frequency 'phase' features: what they carry (post hoc, `lf_phase_analysis.py`)
+* sub-01, median over 127 channels: window-mean low-passed voltage (LMP) explained by the same window's bandpass
+  [LP amp, sin, cos] with R² = 0.80 (causal) / 0.81 (offline); by SSR low-frequency oscillator features R² = 0.81;
+  by LP amplitude alone 0.03. Buffered vs offline LP phase: median |Δφ| = 18°, cos-feature r = 0.97; phase
+  concentration within a 50 ms window 0.92 (the 50 ms average smooths little); 50 % of 0–20 Hz power < 4 Hz.
+* Decoding control HG + LP amp + LMP (buffered, past-only, nested): r = 0.762 vs HG + LP (phase) 0.755
+  (+0.007 [0.002, 0.012], p = 0.004, 8/10), vs SSR amp + phase 0.753 (+0.009, p = 0.02), vs HG 0.736 (+0.026, p = 0.008,
+  9/10); equals offline HG + LP (0.763). → the useful low-frequency information is the slow voltage.
+* Narrowband phase accuracy (reference: offline zero-phase matched bandpass at each SSR oscillator's band), sub-01:
+  SSR 29° / 22° / 22° / 48° vs buffered matched bandpass 60° / 61° / 59° / 70° median error for 0–4 / 4–8 / 8–13 / 13–20 Hz.
+  All participants (2298 LF oscillators): SSR 27° vs bandpass 52° median error; SSR more accurate for 93 % of oscillators
+  (77–99 % per participant); by band 26/24/26/46° vs 50/51/52/68°. Files in `results/lf_phase/`.
+* Interpretation: SSR gives much better causal narrowband phase, but the linear spectrogram decoder uses the slow
+  voltage, which both frameworks (and the LMP) provide; the 50 ms average is not what makes them equal.
+
+## 9. Regenerated figures (`figure_inputs.py`, `paper_figures.py`; numbers in `paper/figure_numbers.txt`)
+Model fits, single-channel example (now sub-01 ch 6), SSR-vs-bandpass correlation grid (offline envelope), feature–audio
+correlations (neural window 200 ms before the audio; the notebook's version had this lead by accident), PLS weights
+(decoder fitted to all data), SOMATA templates, n_comp heatmap (replaces the old grid search), fold stability, zoomed and
+per-participant spectrograms (all ten, ~250 kB each) and error-track correlations — all from the causal main analysis.
+Predictions are recomputed with the per-fold n_comp of the nested runs and match the committed results exactly.
+
+## 10. Open TODOs (in order of importance)
+1. SOMATA illustration figures (somata_example.png, likelihooda/b.png) are schematic and were not regenerated.
+2. Optional: extend the PLS grid down to 2 components for the HG-only sets; Kalman-smoother (offline) SSR as the non-causal
+   SSR reference; LMP as a planned feature set in a confirmatory analysis.
 3. Forward-chaining stability analysis (train early, test later) if parameter stability is to be claimed strongly.
 4. Author list (R. Cavill?), affiliations, funding, CRediT, code DOI.
+
+## 11. Timeline: where each pipeline looks and where the information is (`timing_analysis.py`)
+
+Figure: `paper/images/timing_overview.png` (Fig. 9; last Results section "Timing of the features and of the speech-related information", with a Methods subsection, a sentence in the abstract and the Latency part of the Discussion). Results in `results/timing/`.
+
+**Footprints (measured with 30 ms high-gamma bursts through the actual feature code).** Feature delay: earlier
+409-tap FIR 200 ms; SSR high-gamma oscillators of sub-01 11 ms (range 2–18 ms; group delay over all participants
+median 6 ms); buffered causal bandpass peak at 0 ms with a one-sided tail (centre of mass 31 ms; it cannot see
+the future); offline 0 ms. With the context stack, the decoder input for one audio frame covers about
+−400…0 ms for the earlier bandpass, the buffered bandpass, SSR past-only and the offline reference, and
+−200…+200 ms for the earlier SSR. Last neural sample needed: +225 ms for both earlier pipelines, +25 ms (end of
+the current window) for both causal main pipelines.
+
+**SSR delay by frequency (group delay, all participants, median):** <4 Hz 95 ms, 4–8 Hz 45 ms, 8–13 Hz 30 ms,
+13–30 Hz 29 ms, 30–70 Hz 22 ms, 70–170 Hz 6 ms.
+
+**Cost per 10 ms frame, sub-01, 127 channels, one core:** buffered bandpass (filtfilt + Hilbert on 400 ms) 5.2 ms
+for high gamma, 8.1 ms with the low-pass branch (95th percentile 11.3 ms); steady-state SSR update 0.11 ms.
+
+**Where the information is (delay-free offline features, n = 10).**
+
+* The log-mel spectrogram is slow: autocorrelation 0.79 at ±100 ms, 0.59 at ±200 ms, 0.25 at ±400 ms.
+* One 50 ms window per channel: high gamma decodes best 150 ms before the audio (r = 0.56; 0.55 at −200 ms,
+  0.52 at 0 ms, 0.45 at −400 ms, 0.32 at +200 ms; half-height −500…+100 ms). LMP peaks at 0 ms (r = 0.67) and is
+  nearly flat (0.59–0.67 from −400 to +200 ms). Other bands 0.24–0.28 with flat profiles. The best high-gamma lag
+  ranges from −250 to 0 ms across participants.
+* Sliding the 9-window context (PLS, 8 components): high gamma 0.544 / 0.663 / 0.738 / 0.739 / 0.719 / 0.601 at
+  centres −600 / −400 / −200 / −100 / 0 / +200 ms; with LMP 0.635 / 0.717 / 0.772 / 0.777 / 0.769 / 0.718. The
+  values at −200 and 0 ms reproduce the main analysis (offline HG 0.740 past-only, 0.718 with ±200 ms).
+* Past-only minus ±200 ms: high gamma +0.019 on average, but −0.043 to +0.092 per participant; with LMP +0.003
+  (−0.041 to +0.034). Best centre per participant: −300 to 0 ms (high gamma), −200 to +100 ms (with LMP).
+
+**Reading.** Timing matters (r drops by 0.14 to 0.2 when the window is moved 400 ms off the peak), but the peak
+is broad and lies between the two windows that were compared, so the 200 ms shift of the earlier bandpass
+features cost almost nothing on average. Within the main analysis the remaining timing difference between SSR
+and the buffered bandpass is about 10 ms.

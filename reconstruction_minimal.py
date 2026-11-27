@@ -81,7 +81,7 @@ def select_n_comp_pls(X, Y, grid, inner_folds=5):
 
 
 def reconstruct(pts, model = 'PLS', n_comp = 9, feat_suffix='_feat.npy', unstacked =False, saveAs=None, synthesize=False,
-                causal_stack=False, inner_folds=5):
+                causal_stack=False, inner_folds=5, fold_n_comp=None):
     """
     Reconstruct mel spectrograms from neural features using regression models.
     
@@ -113,6 +113,9 @@ def reconstruct(pts, model = 'PLS', n_comp = 9, feat_suffix='_feat.npy', unstack
         instead of +-200 ms, so the decoder does not use future neural data.
     inner_folds : int, optional
         Number of inner folds for nested selection of n_comp (if n_comp is a list).
+    fold_n_comp : array (n_participants, n_folds) of int, optional
+        Number of PLS components to use in every outer fold, e.g. the {saveAs}nComp.npy of an earlier nested run.
+        Reproduces that run's predictions without repeating the inner selection (n_comp is then ignored).
     saveAs : str or None, optional
         Prefix for saving results. If None or 'dont', returns results without saving.
     synthesize : bool, optional
@@ -230,7 +233,10 @@ def reconstruct(pts, model = 'PLS', n_comp = 9, feat_suffix='_feat.npy', unstack
             '''
 
             #Fit the regression model
-            if nested and model == 'PLS':
+            if fold_n_comp is not None and model == 'PLS':
+                chosen_n_comp[pNr, k] = int(fold_n_comp[pNr][k])
+                est = PLSRegression(n_components=chosen_n_comp[pNr, k], max_iter=1000, copy=False)
+            elif nested and model == 'PLS':
                 best_k, _ = select_n_comp_pls(trainData, spectrogram[train, :], n_comp, inner_folds)
                 chosen_n_comp[pNr, k] = best_k
                 est = PLSRegression(n_components=best_k, max_iter=1000, copy=False)

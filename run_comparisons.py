@@ -84,10 +84,14 @@ FEATURE_SETS = {
     'BPm_pac_dc':  ('_bpm_pac_dc',           'bpm', dict(include_phase=True, include_pac=True, timing='delay_compensated'), None),
     # --- main analysis (agreed set-up): IIR estimators, 70-170 Hz HG, <20 Hz LP ---
     'HG_LPamp_buf': ('_bp_hg_lpamp_buf',     'hg',  dict(low_pass=True, lp_phase=False, timing='buffered'), None),
+    # control: low-pass voltage (LMP) instead of low-pass phase - what do the 'phase' features encode?
+    'HG_LPamp_LMP_buf': ('_bp_hg_lpamp_lmp_buf', 'hg', dict(low_pass=True, lp_phase=False, include_lmp=True, timing='buffered'), None),
     'HG_LP_PACc_buf': ('_bp_hg_lp_pacc_buf', 'hg',  dict(low_pass=True, include_pac=True, pac_mode='complex', timing='buffered'), None),
     'BPm_amp_buf': ('_bpm_amp_buf',          'bpm', dict(include_phase=False, include_pac=False, timing='buffered'), None),
     'BPm_phase_buf': ('_bpm_phase_buf',      'bpm', dict(include_phase=True, include_pac=False, timing='buffered'), None),
     'BPm_pac_buf': ('_bpm_pac_buf',          'bpm', dict(include_phase=True, include_pac=True, timing='buffered'), None),
+    # offline (zero-phase, whole recording) matched bandpass: reference phase for lf_phase_analysis.py
+    'BPm_phase_vw': ('_bpm_phase_vw',        'bpm', dict(include_phase=True, include_pac=False, timing='verwoert'), None),
 }
 
 # Main analysis plan: (feature set, past-only context?). Causal baseline = buffered bandpass with past-only context;
