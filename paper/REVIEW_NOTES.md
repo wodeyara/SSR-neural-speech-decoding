@@ -330,7 +330,7 @@ Predictions are recomputed with the per-fold n_comp of the nested runs and match
 
 ## 11. Timeline: where each pipeline looks and where the information is (`timing_analysis.py`)
 
-Figure: `paper/images/timing_overview.png` (not yet in the paper). Results in `results/timing/`.
+Figure: `paper/images/timing_overview.png` (Fig. 9; last Results section "Timing of the features and of the speech-related information", with a Methods subsection, a sentence in the abstract and the Latency part of the Discussion). Results in `results/timing/`.
 
 **Footprints (measured with 30 ms high-gamma bursts through the actual feature code).** Feature delay: earlier
 409-tap FIR 200 ms; SSR high-gamma oscillators of sub-01 11 ms (range 2–18 ms; group delay over all participants

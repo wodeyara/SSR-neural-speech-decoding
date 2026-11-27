@@ -263,11 +263,11 @@ def plot(out_png='paper/images/timing_overview.png', dpi=200):
     tau = np.arange(xlim[0], xlim[1] + 1, 2.0)
     past, sym = np.arange(-400, 1, 50), np.arange(-200, 201, 50)
     ssr_resp = np.median(k['ssr'] / k['ssr'].max(axis=0), axis=1)
-    rows = [('Earlier draft: bandpass\n(409-tap FIR), ±200 ms stack', k['causal'][:, 0], sym, C_OLD, 225),
-            ('Earlier draft: SSR,\n±200 ms stack', ssr_resp, sym, C_SSR, 225),
-            ('Main: causal bandpass\n(buffered), past-only stack', k['buffered'][:, 0], past, C_BUF, 25),
-            ('Main: SSR,\npast-only stack', ssr_resp, past, C_SSR, 25),
-            ('Reference: offline bandpass,\npast-only stack', k['verwoert'][:, 0], past, C_OFF, None)]
+    rows = [('Causal FIR bandpass (199 ms\ndelay), ±200 ms context', k['causal'][:, 0], sym, C_OLD, 225),
+            ('SSR,\n±200 ms context', ssr_resp, sym, C_SSR, 225),
+            ('Causal bandpass (buffered),\npast-only context', k['buffered'][:, 0], past, C_BUF, 25),
+            ('SSR,\npast-only context', ssr_resp, past, C_SSR, 25),
+            ('Offline bandpass,\npast-only context', k['verwoert'][:, 0], past, C_OFF, None)]
 
     fig = plt.figure(figsize=(8.8, 11.4))
     gs = fig.add_gridspec(4, 2, height_ratios=[3.3, 1.0, 2.5, 1.9], width_ratios=[1, 0.018], hspace=0.62, wspace=0.03,
@@ -353,8 +353,8 @@ def plot(out_png='paper/images/timing_overview.png', dpi=200):
         axD.plot(centres, m, '-o', color=col, lw=2, ms=4, label={'HG': 'high gamma', 'HG+LMP': 'high gamma + LMP'}[s])
         axD.text(centres[-1] + 15, m[-1], {'HG': 'high gamma', 'HG+LMP': 'high gamma\n+ LMP'}[s], va='center',
                  fontsize=8)
-    for c, txt, ha in ((-200, 'past-only context: main analysis,\nand in effect the earlier bandpass', 'right'),
-                       (0, '±200 ms context:\nearlier SSR', 'left')):
+    for c, txt, ha in ((-200, 'past-only context\n(main analysis)', 'right'),
+                       (0, '±200 ms\ncontext', 'left')):
         axD.axvline(c, color=INK, lw=0.8, ls=':')
         axD.annotate(txt, (c, 1.0), xycoords=('data', 'axes fraction'), xytext=(-4 if ha == 'right' else 4, 2),
                      textcoords='offset points', fontsize=7.5, va='bottom', ha=ha)
