@@ -51,4 +51,4 @@ python summarize_main.py --results results/all --latex paper/tables/main_results
 python plot_main.py --results results/all --out paper/images/main_results
 python compare_filters.py --pts sub-01   # filter view of the SSR models
 ```
-The reconstruction correlations and chosen PLS components of the main analysis are in `results/sub-XX/` and, merged, in `results/all/` (chance-level `randomResults` files are not committed because of their size).
+The reconstruction correlations and chosen PLS components of the main analysis are in `results/sub-XX/` and, merged, in `results/all/` (the full chance-level `randomResults` files are not committed because of their size; `results/all/chance_null.npz` holds the 1000 null correlations per feature set and participant, averaged over Mel bins).

@@ -77,6 +77,10 @@ def main():
                 cells_tex.append(f'${pp.mean():.3f} \\pm {sd:.3f}$')
         a = load(args.results, name, 'past')
         rnd = load(args.results, name, 'past', 'randomResults')
+        if rnd is None and os.path.exists(os.path.join(args.results, 'chance_null.npz')):
+            # compact copy kept in the repository: null correlations averaged over Mel bins, (participants, 1000)
+            null = np.load(os.path.join(args.results, 'chance_null.npz'))
+            rnd = null[prefix(name, 'past')] if prefix(name, 'past') in null.files else None
         nc = load(args.results, name, 'past', 'nComp')
         chance = f'{per_participant(rnd).mean():.3f}' if rnd is not None else '-'
         ncs = (f'{int(np.median(nc))} [{int(np.min(nc))}-{int(np.max(nc))}]' if nc is not None else '-')
