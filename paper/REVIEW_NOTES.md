@@ -327,3 +327,39 @@ Predictions are recomputed with the per-fold n_comp of the nested runs and match
    SSR reference; LMP as a planned feature set in a confirmatory analysis.
 3. Forward-chaining stability analysis (train early, test later) if parameter stability is to be claimed strongly.
 4. Author list (R. Cavill?), affiliations, funding, CRediT, code DOI.
+
+## 11. Timeline: where each pipeline looks and where the information is (`timing_analysis.py`)
+
+Figure: `paper/images/timing_overview.png` (not yet in the paper). Results in `results/timing/`.
+
+**Footprints (measured with 30 ms high-gamma bursts through the actual feature code).** Feature delay: earlier
+409-tap FIR 200 ms; SSR high-gamma oscillators of sub-01 11 ms (range 2–18 ms; group delay over all participants
+median 6 ms); buffered causal bandpass peak at 0 ms with a one-sided tail (centre of mass 31 ms; it cannot see
+the future); offline 0 ms. With the context stack, the decoder input for one audio frame covers about
+−400…0 ms for the earlier bandpass, the buffered bandpass, SSR past-only and the offline reference, and
+−200…+200 ms for the earlier SSR. Last neural sample needed: +225 ms for both earlier pipelines, +25 ms (end of
+the current window) for both causal main pipelines.
+
+**SSR delay by frequency (group delay, all participants, median):** <4 Hz 95 ms, 4–8 Hz 45 ms, 8–13 Hz 30 ms,
+13–30 Hz 29 ms, 30–70 Hz 22 ms, 70–170 Hz 6 ms.
+
+**Cost per 10 ms frame, sub-01, 127 channels, one core:** buffered bandpass (filtfilt + Hilbert on 400 ms) 5.2 ms
+for high gamma, 8.1 ms with the low-pass branch (95th percentile 11.3 ms); steady-state SSR update 0.11 ms.
+
+**Where the information is (delay-free offline features, n = 10).**
+
+* The log-mel spectrogram is slow: autocorrelation 0.79 at ±100 ms, 0.59 at ±200 ms, 0.25 at ±400 ms.
+* One 50 ms window per channel: high gamma decodes best 150 ms before the audio (r = 0.56; 0.55 at −200 ms,
+  0.52 at 0 ms, 0.45 at −400 ms, 0.32 at +200 ms; half-height −500…+100 ms). LMP peaks at 0 ms (r = 0.67) and is
+  nearly flat (0.59–0.67 from −400 to +200 ms). Other bands 0.24–0.28 with flat profiles. The best high-gamma lag
+  ranges from −250 to 0 ms across participants.
+* Sliding the 9-window context (PLS, 8 components): high gamma 0.544 / 0.663 / 0.738 / 0.739 / 0.719 / 0.601 at
+  centres −600 / −400 / −200 / −100 / 0 / +200 ms; with LMP 0.635 / 0.717 / 0.772 / 0.777 / 0.769 / 0.718. The
+  values at −200 and 0 ms reproduce the main analysis (offline HG 0.740 past-only, 0.718 with ±200 ms).
+* Past-only minus ±200 ms: high gamma +0.019 on average, but −0.043 to +0.092 per participant; with LMP +0.003
+  (−0.041 to +0.034). Best centre per participant: −300 to 0 ms (high gamma), −200 to +100 ms (with LMP).
+
+**Reading.** Timing matters (r drops by 0.14 to 0.2 when the window is moved 400 ms off the peak), but the peak
+is broad and lies between the two windows that were compared, so the 200 ms shift of the earlier bandpass
+features cost almost nothing on average. Within the main analysis the remaining timing difference between SSR
+and the buffered bandpass is about 10 ms.
