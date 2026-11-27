@@ -229,6 +229,13 @@ def speed(pt='sub-01', frames=300):
 C_SSR, C_BUF, C_OFF, C_OLD, INK, MUTED = '#2a78d6', '#eb6834', '#eda100', '#7a7f8a', '#1f2430', '#6b7280'
 
 
+def _title(ax, letter, title, sub, pad=16):
+    ax.annotate(f'{letter}  {title}', (0.02, 1.0), xycoords=('figure fraction', 'axes fraction'), xytext=(0, pad + 11),
+                textcoords='offset points', ha='left', va='bottom', fontsize=10, fontweight='bold')
+    ax.annotate(sub, (0.02, 1.0), xycoords=('figure fraction', 'axes fraction'), xytext=(0, pad), textcoords='offset points',
+                ha='left', va='bottom', fontsize=8, color=MUTED)
+
+
 def decoder_footprint(lag_ms, resp, offsets_ms, tau):
     """Sensitivity of the stacked feature vector of one audio frame to neural activity at time tau (ms)."""
     resp = np.clip(resp, 0, None)
@@ -236,7 +243,7 @@ def decoder_footprint(lag_ms, resp, offsets_ms, tau):
     return k / k.max()
 
 
-def plot(out_png='paper/images/timing_overview.png'):
+def plot(out_png='paper/images/timing_overview.png', dpi=200):
     import glob
     import matplotlib
     matplotlib.use('Agg')
@@ -262,9 +269,9 @@ def plot(out_png='paper/images/timing_overview.png'):
             ('Main: SSR,\npast-only stack', ssr_resp, past, C_SSR, 25),
             ('Reference: offline bandpass,\npast-only stack', k['verwoert'][:, 0], past, C_OFF, None)]
 
-    fig = plt.figure(figsize=(8.6, 10.6))
-    gs = fig.add_gridspec(4, 2, height_ratios=[3.3, 1.0, 2.5, 1.9], width_ratios=[1, 0.018], hspace=0.42, wspace=0.03,
-                          left=0.27, right=0.93, top=0.955, bottom=0.055)
+    fig = plt.figure(figsize=(8.8, 11.4))
+    gs = fig.add_gridspec(4, 2, height_ratios=[3.3, 1.0, 2.5, 1.9], width_ratios=[1, 0.018], hspace=0.62, wspace=0.03,
+                          left=0.27, right=0.92, top=0.95, bottom=0.05)
     axA = fig.add_subplot(gs[0, 0])
     axB = fig.add_subplot(gs[1, 0], sharex=axA)
     axC = fig.add_subplot(gs[2, 0], sharex=axA)
@@ -291,8 +298,9 @@ def plot(out_png='paper/images/timing_overview.png'):
     axA.set_ylim(-0.1, len(rows) + 0.05)
     axA.set_yticks([])
     axA.spines['left'].set_visible(False)
-    axA.set_title('A  Neural activity the decoder sees for one audio frame (high-gamma features; ▼ centre of mass)',
-                  loc='left', fontsize=9.5, fontweight='bold', x=-0.38)
+    _title(axA, 'A', 'What the decoder sees for one audio frame',
+           'Measured footprint of the stacked high-gamma features (▼ centre of mass); black bar: last neural sample '
+           'needed before the frame can be decoded', pad=14)
 
     # B: autocorrelation of the target
     al = L[0]['acorr_lags_ms']
@@ -304,8 +312,8 @@ def plot(out_png='paper/images/timing_overview.png'):
         axB.plot([v], [np.interp(v, al, acorr)], 'o', ms=5, color=INK)
     axB.annotate(f'r = {np.interp(200, al, acorr):.2f} at ±200 ms', (200, np.interp(200, al, acorr)),
                  xytext=(8, 6), textcoords='offset points', fontsize=8)
-    axB.set_title(f'B  How slowly speech itself changes: autocorrelation of the log-mel spectrogram (mean, n = {n})',
-                  loc='left', fontsize=9.5, fontweight='bold', x=-0.38)
+    _title(axB, 'B', 'How slowly the speech spectrogram changes',
+           f'Autocorrelation of the log-mel spectrogram (mean over Mel bins and {n} participants)', pad=6)
 
     # C: information by frequency and lag
     order = ['70-170', '30-70', '13-30', '8-13', '4-8', '1-4', 'LMP']
@@ -321,8 +329,6 @@ def plot(out_png='paper/images/timing_overview.png'):
     for i, b in enumerate(order):
         j = M[i].argmax()
         axC.plot([lags[j]], [i], 'o', ms=5, mfc='white', mec=INK, mew=1)
-        half = lags[M[i] >= M[i].max() - 0.5 * (M[i].max() - M[i].min())]
-        axC.plot([half.min(), half.max()], [i + 0.33, i + 0.33], color=INK, lw=1.2)
         axC.text(-0.02, i, lab[b], transform=axC.get_yaxis_transform(), ha='right', va='center', fontsize=8.5)
         axC.text(xlim[1] - 8, i, f'peak r = {M[i].max():.2f}', ha='right', va='center', fontsize=7.5,
                  color=INK if M[i, -1] < 0.5 * im.get_clim()[1] else 'white')
@@ -332,8 +338,9 @@ def plot(out_png='paper/images/timing_overview.png'):
     cb = fig.colorbar(im, cax=cax)
     cb.set_label('reconstruction r', fontsize=8)
     cb.outline.set_visible(False)
-    axC.set_title('C  Where the information is: decoding from ONE 50 ms window per channel at each lag '
-                  '(○ best lag, ▬ half-height width)', loc='left', fontsize=9.5, fontweight='bold', x=-0.38)
+    _title(axC, 'C', 'Where the information is, by frequency',
+           f'Reconstruction r from ONE 50 ms window per channel placed at each lag (delay-free offline features, '
+           f'mean of {n} participants); ○ best lag', pad=6)
 
     # D: sliding the 400 ms context
     sets = list(L[0]['sets'])
@@ -346,21 +353,22 @@ def plot(out_png='paper/images/timing_overview.png'):
         axD.plot(centres, m, '-o', color=col, lw=2, ms=4, label={'HG': 'high gamma', 'HG+LMP': 'high gamma + LMP'}[s])
         axD.text(centres[-1] + 15, m[-1], {'HG': 'high gamma', 'HG+LMP': 'high gamma\n+ LMP'}[s], va='center',
                  fontsize=8)
-    lo, hi = axD.get_ylim()
-    for c, txt in ((-200, 'past-only context\n(main analysis; also the\nearlier bandpass, in effect)'),
-                   (0, '±200 ms context\n(earlier SSR)')):
+    for c, txt, ha in ((-200, 'past-only context: main analysis,\nand in effect the earlier bandpass', 'right'),
+                       (0, '±200 ms context:\nearlier SSR', 'left')):
         axD.axvline(c, color=INK, lw=0.8, ls=':')
-        axD.text(c + 8, lo + 0.02 * (hi - lo), txt, fontsize=7.5, va='bottom')
+        axD.annotate(txt, (c, 1.0), xycoords=('data', 'axes fraction'), xytext=(-4 if ha == 'right' else 4, 2),
+                     textcoords='offset points', fontsize=7.5, va='bottom', ha=ha)
+        y0 = 0.0 if c else 0.05
+        axD.axvspan(c - 200, c + 200, ymin=y0, ymax=y0 + 0.035, color=INK, alpha=0.55, lw=0)
     axD.set_ylabel('reconstruction r')
     axD.set_xlabel('time of neural activity relative to the audio frame (ms); negative = brain before sound')
-    axD.legend(frameon=False, fontsize=8, loc='upper left', ncol=2)
-    axD.set_title(f'D  Sliding the whole 400 ms context: r versus the centre of the context window '
-                  f'(offline features, PLS, mean ± within-participant SEM, n = {n})',
-                  loc='left', fontsize=9.5, fontweight='bold', x=-0.38)
+    _title(axD, 'D', 'Sliding the whole 400 ms context window',
+           f'Reconstruction r versus the centre of the 9-window context (delay-free offline features, PLS; '
+           f'mean ± within-participant SEM, n = {n})', pad=22)
     axA.set_xlim(xlim)
-    for ax in (axA, axB, axC):
+    for ax in (axB, axC):
         plt.setp(ax.get_xticklabels(), visible=False)
-    fig.savefig(out_png, dpi=200)
+    fig.savefig(out_png, dpi=dpi)
     print('wrote', out_png)
     # numbers
     print('autocorr at 0, +-100, +-200, +-400 ms:', [round(float(np.interp(v, al, acorr)), 3) for v in (0, 100, 200, 400)])
